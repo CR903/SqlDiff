@@ -26,6 +26,24 @@ Questions to answer:
 - secrets禁止进 `nodes.json`，只进vault；导出JSON禁止明文，统一 `ExportJSON {version:1, secretsEnc:{enc:"aes-gcm",iv,data}}`。
 - 渲染进程禁止直引 `node:crypto/mysql2/ssh2`，跨层共享纯函数放 `src-core/compare-filter.ts`。
 
+### Don't: node内置模块默认导入（启动崩坑）
+
+**Problem**:
+```ts
+// tsconfig 无 esModuleInterop 时这样写：
+import path from 'node:path';   // 编译后 path_1.default.join -> TypeError: Cannot read properties of undefined (reading 'join')
+import fs from 'node:fs';       // 同理，vault/store-json 启动即崩
+```
+
+**Why it's bad**: `allowSyntheticDefaultImports` 只消类型错、不发互操作桩；主进程 CommonJS 下 default 为 undefined，`npm start` 建窗口直接崩且无窗口（2026-09-21实测）。
+
+**Instead**:
+```ts
+// 根 tsconfig.json 常开：
+"esModuleInterop": true,
+import path from 'node:path'; // 或 import * as path，二选一全仓统一
+```
+
 ---
 
 ## Required Patterns
