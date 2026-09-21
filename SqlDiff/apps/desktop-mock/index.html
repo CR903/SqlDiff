@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SqlDiff 桌面版 · M6 原型</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background:#0b0f14; color:#e6edf3; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+  .card { background:#131a23; border:1px solid #232d3a; border-radius:12px; }
+  .node-card { cursor:grab; transition:.15s; }
+  .node-card:hover { border-color:#3b82f6; transform:translateY(-1px); }
+  .node-card:active { cursor:grabbing; }
+  .slot { border:1.5px dashed #334154; border-radius:12px; min-height:64px; transition:.15s; }
+  .slot.filled { border-style:solid; border-color:#3b82f6; background:#16203200; }
+  .slot.dragover { border-color:#22c55e; background:#14532d33; }
+  .diff-row { cursor:pointer; }
+  .diff-row:hover { background:#1b2534; }
+  .diff-row.selected { background:#1d2c46 !important; outline:1px solid #3b82f6; }
+  .badge { font-size:11px; padding:2px 8px; border-radius:999px; font-weight:600; }
+  .b-create { background:#14532d; color:#86efac; }
+  .b-drop { background:#7f1d1d; color:#fca5a5; }
+  .b-change { background:#78350f; color:#fcd34d; }
+  .b-obj { background:#1e293b; color:#93c5fd; border:1px solid #334155; }
+  .risk-high { color:#f87171; } .risk-med { color:#fbbf24; } .risk-low { color:#4ade80; }
+  .tab-btn { padding:6px 14px; border-radius:8px; font-size:13px; color:#94a3b8; }
+  .tab-btn:hover { color:#e2e8f0; background:#1e293b; }
+  .tab-btn.active { background:#2563eb; color:#fff; }
+  .ltab { flex:1; padding:6px 0; font-size:13px; border-radius:8px; color:#94a3b8; text-align:center; }
+  .ltab.active { background:#1e293b; color:#fff; }
+  pre.sql { font-family:"JetBrains Mono",Menlo,Consolas,monospace; font-size:12.5px; line-height:1.65; white-space:pre-wrap; word-break:break-all; }
+  .tok-kw { color:#c792ea; font-weight:700; } .tok-str { color:#9ece6a; }
+  .tok-num { color:#ff9e64; } .tok-cmt { color:#5b6b7f; font-style:italic; }
+  #toast { position:fixed; bottom:28px; left:50%; transform:translateX(-50%) translateY(20px); opacity:0; transition:.25s; z-index:99; }
+  #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  ::-webkit-scrollbar { width:8px; height:8px; } ::-webkit-scrollbar-thumb { background:#334155; border-radius:4px; }
+  kbd { background:#1e293b; border:1px solid #334155; border-radius:4px; padding:0 5px; font-size:11px; }
+</style>
+</head>
+<body class="h-screen flex flex-col">
+
+<!-- 顶栏 -->
+<header class="flex items-center gap-3 px-4 py-2.5 border-b border-[#232d3a]">
+  <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center font-bold">S</div>
+  <div>
+    <div class="font-bold text-[15px]">SqlDiff 桌面版 <span class="text-[11px] font-normal text-slate-400 ml-1">M6 HTML 原型 · 离线可用</span></div>
+  </div>
+  <div class="ml-auto flex items-center gap-2 text-[12px] text-slate-400">
+    <span>深色智能化</span><span class="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+    <span class="hidden md:inline"><kbd>⌘/Ctrl</kbd> + <kbd>Enter</kbd> 对比</span>
+  </div>
+</header>
+
+<!-- 三栏 -->
+<main class="flex-1 grid grid-cols-[280px_1fr_380px] gap-3 p-3 overflow-hidden">
+
+  <!-- ═══ 左栏：节点库 ═══ -->
+  <aside class="card p-3 flex flex-col overflow-hidden">
+    <div class="flex items-center justify-between mb-2">
+      <h2 class="font-bold text-sm">节点库</h2>
+      <button class="text-[12px] text-blue-400 hover:text-blue-300" onclick="toast('M6原型：新增节点二期实现')">＋ 新增</button>
+    </div>
+    <input id="nodeSearch" placeholder="搜索 别名 / host / 库名…" oninput="filterNodes(this.value)"
+      class="w-full bg-[#0b0f14] border border-[#2a3648] rounded-lg px-3 py-2 text-[13px] outline-none focus:border-blue-500 mb-2">
+    <div class="flex gap-1 bg-[#0b0f14] rounded-lg p-1 mb-2">
+      <button class="ltab active" data-ltab="hist" onclick="switchLTab('hist',this)">历史</button>
+      <button class="ltab" data-ltab="mine" onclick="switchLTab('mine',this)">我的</button>
+      <button class="ltab" data-ltab="fav" onclick="switchLTab('fav',this)">常用</button>
+    </div>
+    <div id="nodeList" class="flex-1 overflow-y-auto space-y-2 pr-0.5"></div>
+    <p class="text-[11px] text-slate-500 mt-2">💡 拖拽卡片到中央 A / B 槽</p>
+  </aside>
+
+  <!-- ═══ 中栏 ═══ -->
+  <section class="flex flex-col gap-3 overflow-hidden">
+    <!-- 中上：对比槽 -->
+    <div class="card p-3">
+      <div class="grid grid-cols-[1fr_auto_1fr] gap-2 items-stretch">
+        <div id="slotA" class="slot p-2.5 flex flex-col justify-center items-center text-center"
+             ondragover="event.preventDefault();this.classList.add('dragover')"
+             ondragleave="this.classList.remove('dragover')"
+             ondrop="dropToSlot(event,'A')">
+          <div class="text-[11px] text-blue-400 font-bold tracking-wider">SOURCE · A</div>
+          <div class="slot-body text-[13px] text-slate-500 mt-1">拖拽节点到此 / 点击下拉选择</div>
+        </div>
+        <div class="flex flex-col gap-1.5 justify-center">
+          <button onclick="swapSlots()" title="交换 A/B（替代老 --reverse）" class="bg-[#1e293b] hover:bg-[#273449] rounded-lg px-2.5 py-1.5 text-sm">⇄ 交换</button>
+          <button onclick="clearSlots()" class="bg-[#1e293b] hover:bg-[#273449] rounded-lg px-2.5 py-1.5 text-sm text-slate-400">清空</button>
+        </div>
+        <div id="slotB" class="slot p-2.5 flex flex-col justify-center items-center text-center"
+             ondragover="event.preventDefault();this.classList.add('dragover')"
+             ondragleave="this.classList.remove('dragover')"
+             ondrop="dropToSlot(event,'B')">
+          <div class="text-[11px] text-violet-400 font-bold tracking-wider">TARGET · B</div>
+          <div class="slot-body text-[13px] text-slate-500 mt-1">拖拽节点到此 / 点击下拉选择</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-3 mt-2.5 flex-wrap text-[13px]">
+        <label class="flex items-center gap-1"><input type="checkbox" checked class="accent-blue-500 scope" value="table"> 表</label>
+        <label class="flex items-center gap-1"><input type="checkbox" checked class="accent-blue-500 scope" value="view"> 视图</label>
+        <label class="flex items-center gap-1"><input type="checkbox" checked class="accent-blue-500 scope" value="procedure"> 过程</label>
+        <label class="flex items-center gap-1"><input type="checkbox" checked class="accent-blue-500 scope" value="function"> 函数</label>
+        <input id="tableFilter" placeholder="表搜索过滤…" oninput="renderDiff()"
+          class="bg-[#0b0f14] border border-[#2a3648] rounded-lg px-2.5 py-1.5 text-[12px] outline-none focus:border-blue-500 w-32">
+        <button onclick="runCompare()" class="ml-auto bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg px-5 py-1.5">对比 ⚡</button>
+      </div>
+      <div id="compareMeta" class="text-[11px] text-slate-500 mt-1.5">已记忆上次组合：prod-主库 → staging-验证库 · 范围：表/视图/过程/函数</div>
+    </div>
+
+    <!-- 中下：差异表 -->
+    <div class="card p-3 flex-1 flex flex-col overflow-hidden">
+      <div class="flex items-center gap-1.5 mb-2 flex-wrap">
+        <button class="tab-btn active" data-filter="ALL" onclick="setFilter('ALL',this)">全部 <span id="cAll"></span></button>
+        <button class="tab-btn" data-filter="CREATE" onclick="setFilter('CREATE',this)">CREATE <span id="cCreate"></span></button>
+        <button class="tab-btn" data-filter="DROP" onclick="setFilter('DROP',this)">DROP <span id="cDrop"></span></button>
+        <button class="tab-btn" data-filter="CHANGE" onclick="setFilter('CHANGE',this)">CHANGE <span id="cChange"></span></button>
+        <span id="diffStat" class="ml-auto text-[12px] text-slate-400"></span>
+      </div>
+      <div class="overflow-y-auto flex-1 -mx-1 px-1">
+        <table class="w-full text-[13px]">
+          <thead class="text-slate-500 text-[11px] sticky top-0 bg-[#131a23]">
+            <tr><th class="text-left py-1.5 px-2">对象</th><th class="text-left px-2">类型</th><th class="text-left px-2">变更</th><th class="text-left px-2">风险</th></tr>
+          </thead>
+          <tbody id="diffBody"></tbody>
+        </table>
+        <div id="emptyState" class="hidden text-center py-10 text-slate-500 text-[13px]">空空如也 — 换个 Tab 或清空表过滤试试 🍃</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 右栏：SQL 预览 ═══ -->
+  <aside class="card p-3 flex flex-col overflow-hidden">
+    <div class="flex items-center gap-2 mb-1">
+      <h2 class="font-bold text-sm">SQL 预览</h2>
+      <span id="sqlMode" class="text-[11px] text-slate-400"></span>
+      <div class="ml-auto flex gap-1.5">
+        <button onclick="copySQL()" class="bg-blue-600 hover:bg-blue-500 text-white text-[12px] font-bold rounded-lg px-3 py-1.5">⧉ 复制</button>
+        <button onclick="exportSQL()" class="bg-[#1e293b] hover:bg-[#273449] text-[12px] rounded-lg px-3 py-1.5">导出 .sql</button>
+      </div>
+    </div>
+    <div id="dropAlert" class="hidden mb-2 bg-[#7f1d1d33] border border-red-800 rounded-lg px-3 py-2 text-[12px] text-red-300">⚠️ 含 <b>DROP</b> 高危语句：执行前请备份，复制需二次确认。</div>
+    <pre id="sqlView" class="sql flex-1 overflow-y-auto bg-[#0b0f14] border border-[#2a3648] rounded-lg p-3"></pre>
+    <div class="mt-2 bg-[#0b0f14] border border-[#2a3648] rounded-lg p-2.5 text-[12px] space-y-1.5 max-h-40 overflow-y-auto">
+      <div class="font-bold text-slate-300">🛡 风险说明</div>
+      <div id="riskText" class="text-slate-400"></div>
+      <div class="font-bold text-slate-300 pt-1">↩ 回滚建议</div>
+      <div id="rollbackText" class="text-slate-400"></div>
+    </div>
+  </aside>
+</main>
+
+<div id="toast" class="bg-[#1e293b] border border-[#334155] rounded-lg px-4 py-2 text-[13px] shadow-xl"></div>
+
+<script>
+// ── 数据 ──
+const NODES = [
+  {alias:'prod-主库', host:'10.0.1.12', db:'shop', latency:8,  star:true,  tab:['hist','mine','fav'], use:42},
+  {alias:'staging-验证库', host:'10.0.2.8', db:'shop', latency:21, star:false, tab:['hist','fav'], use:27},
+  {alias:'本地-dev', host:'127.0.0.1', db:'shop_dev', latency:2,  star:true,  tab:['hist','mine'], use:15},
+  {alias:'analytics-数仓', host:'10.0.3.30', db:'report', latency:64, star:false, tab:['hist'], use:5},
+];
+const DIFFS = [
+  {id:'d1', obj:'users', change:'CREATE', otype:'table', risk:'low',
+   sql:'CREATE TABLE `users` (\n  `id` BIGINT NOT NULL AUTO_INCREMENT,\n  `name` VARCHAR(64) NOT NULL,\n  `age` INT DEFAULT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB;',
+   riskText:'低风险：目标库缺失该表，创建无数据丢失。',
+   rollback:'回滚：DROP TABLE `users`;（确认无写入后再执行）'},
+  {id:'d2', obj:'old_log', change:'DROP', otype:'table', risk:'high',
+   sql:'DROP TABLE `old_log`;',
+   riskText:'高危：DROP TABLE 会永久删除表结构与全部数据，不可逆。',
+   rollback:'回滚建议：执行前 mysqldump 备份该表；回滚需从备份恢复，无自动逆操作。'},
+  {id:'d3', obj:'users.age', change:'CHANGE', otype:'table', risk:'medium',
+   sql:'ALTER TABLE `users`\n  CHANGE COLUMN `age` `age` TINYINT NULL DEFAULT 0;',
+   riskText:'中风险：列类型收窄（INT→TINYINT）可能导致越界截断；含 CHANGE COLUMN。',
+   rollback:'回滚：ALTER TABLE `users` CHANGE COLUMN `age` `age` INT DEFAULT NULL;（先备份列数据）'},
+  {id:'d4', obj:'calc', change:'DROP', otype:'procedure', risk:'high',
+   sql:'DROP PROCEDURE IF EXISTS `calc`;',
+   riskText:'高危：删除存储过程，依赖它的业务调用将失败。',
+   rollback:'回滚建议：保留 SHOW CREATE PROCEDURE `calc` 文本，误删后重建即可（无数据影响）。'},
+  {id:'d5', obj:'v_order', change:'CREATE', otype:'view', risk:'low',
+   sql:'CREATE OR REPLACE VIEW `v_order` AS\nSELECT `id`, `total` FROM `orders`\nWHERE `status` = \'paid\';',
+   riskText:'低风险：视图为虚拟表，创建/替换不影响基表数据。',
+   rollback:'回滚：DROP VIEW `v_order`; 即可。'},
+  {id:'d6', obj:'fn_total', change:'CHANGE', otype:'function', risk:'medium',
+   sql:'DROP FUNCTION IF EXISTS `fn_total`;\nCREATE FUNCTION `fn_total`(`oid` BIGINT)\nRETURNS DECIMAL(10,2) DETERMINISTIC\nRETURN (SELECT SUM(`price`) FROM `items`\n  WHERE `order_id` = `oid`);',
+   riskText:'中风险：函数重建（DROP+CREATE）瞬间调用可能失败；归一化 DEFINER 后语义一致。',
+   rollback:'回滚：保留旧函数定义文本，出错时重新创建旧版本。'},
+];
+let curFilter='ALL', selectedId=null, slotState={A:null,B:null}, curLTab='hist';
+
+// ── 左栏 ──
+function latencyColor(ms){ return ms<15?'text-emerald-400':ms<50?'text-amber-400':'text-red-400'; }
+function renderNodes(keyword=''){
+  const kw=(keyword||'').toLowerCase();
+  const list=NODES.filter(n=>n.tab.includes(curLTab)&&(!kw||(n.alias+n.host+n.db).toLowerCase().includes(kw)));
+  document.getElementById('nodeList').innerHTML = list.map(n=>`
+    <div class="node-card card p-2.5" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','${n.alias}')">
+      <div class="flex items-center gap-1.5">
+        <span class="font-bold text-[13px]">${n.alias}</span>
+        <span class="ml-auto ${n.star?'text-amber-400':'text-slate-600'}">${n.star?'★':'☆'}</span>
+      </div>
+      <div class="text-[12px] text-slate-400 mt-0.5 font-mono">${n.host} · ${n.db}</div>
+      <div class="flex items-center gap-2 mt-1 text-[11px]">
+        <span class="${latencyColor(n.latency)}">● ${n.latency}ms</span>
+        <span class="text-slate-500">用过 ${n.use} 次</span>
+      </div>
+    </div>`).join('') || '<div class="text-center text-slate-500 text-[12px] py-6">无匹配节点</div>';
+}
+function filterNodes(v){ renderNodes(v); }
+function switchLTab(t,el){ curLTab=t; document.querySelectorAll('.ltab').forEach(b=>b.classList.remove('active')); el.classList.add('active'); renderNodes(document.getElementById('nodeSearch').value); }
+
+// ── A/B 槽 ──
+function slotHTML(alias){
+  const n=NODES.find(x=>x.alias===alias);
+  return `<div class="font-bold text-[13px]">${alias}</div><div class="text-[11px] text-slate-400 font-mono">${n?n.host+' · '+n.db:''}</div>`;
+}
+function dropToSlot(e,which){
+  e.preventDefault(); e.currentTarget.classList.remove('dragover');
+  const alias=e.dataTransfer.getData('text/plain');
+  if(!alias) return;
+  slotState[which]=alias;
+  const s=document.getElementById('slot'+which);
+  s.classList.add('filled');
+  s.querySelector('.slot-body').innerHTML=slotHTML(alias);
+  toast(`已放入 ${which} 槽：${alias}`);
+}
+function swapSlots(){
+  [slotState.A,slotState.B]=[slotState.B,slotState.A];
+  ['A','B'].forEach(w=>{ const s=document.getElementById('slot'+w);
+    if(slotState[w]){ s.classList.add('filled'); s.querySelector('.slot-body').innerHTML=slotHTML(slotState[w]); }
+    else { s.classList.remove('filled'); s.querySelector('.slot-body').textContent='拖拽节点到此 / 点击下拉选择'; }});
+  toast('已交换 A ⇄ B（等价老 --reverse）');
+}
+function clearSlots(){
+  slotState={A:null,B:null};
+  ['A','B'].forEach(w=>{ const s=document.getElementById('slot'+w); s.classList.remove('filled');
+    s.querySelector('.slot-body').textContent='拖拽节点到此 / 点击下拉选择'; });
+  toast('已清空 A / B 槽');
+}
+function runCompare(){
+  const scopes=[...document.querySelectorAll('.scope:checked')].map(c=>c.value);
+  document.getElementById('compareMeta').textContent=
+    `上次对比：${slotState.A||'A(未选)'} → ${slotState.B||'B(未选)'} · 范围：${scopes.join('/')} · ${new Date().toLocaleTimeString()} · 快捷键 ⌘/Ctrl+Enter`;
+  renderDiff(); toast('对比完成：发现 '+visibleDiffs().length+' 条差异');
+}
+document.addEventListener('keydown',e=>{ if((e.metaKey||e.ctrlKey)&&e.key==='Enter') runCompare(); });
+
+// ── 差异表 + 过滤 ──
+function visibleDiffs(){
+  const kw=(document.getElementById('tableFilter').value||'').toLowerCase();
+  return DIFFS.filter(d=>(curFilter==='ALL'||d.change===curFilter)&&(!kw||d.obj.toLowerCase().includes(kw)||d.sql.toLowerCase().includes(kw)));
+}
+function setFilter(f,el){
+  curFilter=f; selectedId=null;
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active')); el.classList.add('active');
+  renderDiff();
+}
+function riskLabel(r){ return r==='high'?'<span class="risk-high font-bold">高危</span>':r==='medium'?'<span class="risk-med">中</span>':'<span class="risk-low">低</span>'; }
+function renderDiff(){
+  const vis=visibleDiffs();
+  document.getElementById('cAll').textContent='('+DIFFS.length+')';
+  document.getElementById('cCreate').textContent='('+DIFFS.filter(d=>d.change==='CREATE').length+')';
+  document.getElementById('cDrop').textContent='('+DIFFS.filter(d=>d.change==='DROP').length+')';
+  document.getElementById('cChange').textContent='('+DIFFS.filter(d=>d.change==='CHANGE').length+')';
+  document.getElementById('diffStat').textContent=`当前 ${vis.length} 条`;
+  document.getElementById('emptyState').classList.toggle('hidden',vis.length>0);
+  document.getElementById('diffBody').innerHTML=vis.map(d=>`
+    <tr class="diff-row border-t border-[#1e293b] ${selectedId===d.id?'selected':''}" onclick="selectRow('${d.id}')">
+      <td class="py-2 px-2 font-mono">${d.obj}</td>
+      <td class="px-2"><span class="badge b-obj">${d.otype}</span></td>
+      <td class="px-2"><span class="badge b-${d.change.toLowerCase()}">${d.change}</span></td>
+      <td class="px-2">${riskLabel(d.risk)}</td>
+    </tr>`).join('');
+  renderSQL();
+}
+function selectRow(id){ selectedId=id; renderDiff(); }
+
+// ── 右栏 SQL ──
+function highlight(sql){
+  var esc = sql.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  var slots = [];
+  function stash(html){ slots.push(html); return '\uE000' + '\uE001'.repeat(slots.length) + '\uE000'; }
+  var tmp = esc
+    .replace(/(--[^\n]*)/g, function(m){ return stash('<span class="tok-cmt">'+m+'</span>'); })
+    .replace(/('[^']*')/g, function(m){ return stash('<span class="tok-str">'+m+'</span>'); })
+    .replace(/(`[^`]*`)/g, function(m){ return stash('<span class="tok-str">'+m+'</span>'); });
+  tmp = tmp.replace(/\b(CREATE|OR|REPLACE|DROP|TABLE|VIEW|PROCEDURE|FUNCTION|ALTER|CHANGE|COLUMN|ADD|IF|NOT|NULL|EXISTS|DEFAULT|PRIMARY|KEY|ENGINE|SELECT|FROM|WHERE|RETURNS|RETURN|DETERMINISTIC|SUM|AS|AUTO_INCREMENT)\b/g,'<span class="tok-kw">$1</span>');
+  return tmp.replace(/\uE000(\uE001+)\uE000/g, function(m, g){ return slots[g.length - 1] || m; });
+}
+function currentSQLItems(){
+  const vis=visibleDiffs();
+  if(selectedId){ const one=DIFFS.find(d=>d.id===selectedId); if(one&&vis.includes(one)) return [one]; }
+  return vis;
+}
+function renderSQL(){
+  const items=currentSQLItems();
+  const header=`-- SqlDiff 导出 · A:${slotState.A||'prod-主库'} → B:${slotState.B||'staging-验证库'}\n-- 时间：${new Date().toLocaleString()} · 顺序：DROP → CREATE → CHANGE\n\n`;
+  const order={DROP:0,CREATE:1,CHANGE:2};
+  const sorted=[...items].sort((a,b)=>order[a.change]-order[b.change]);
+  document.getElementById('sqlView').innerHTML = items.length? highlight(header+sorted.map(d=>d.sql).join('\n\n')) : '<span class="text-slate-500">暂无 SQL</span>';
+  const hasDrop=sorted.some(d=>d.change==='DROP');
+  document.getElementById('dropAlert').classList.toggle('hidden',!hasDrop);
+  document.getElementById('sqlMode').textContent = selectedId&&items.length===1 ? '· 单条：'+items[0].obj : '· 当前Tab全部（'+items.length+'条）';
+  document.getElementById('riskText').textContent = items.length? items.map(d=>`【${d.obj}】${d.riskText}`).join('\n') : '—';
+  document.getElementById('rollbackText').textContent = items.length? items.map(d=>`【${d.obj}】${d.rollback}`).join('\n') : '—';
+}
+function plainSQL(){ return document.getElementById('sqlView').innerText; }
+function copySQL(){
+  const items=currentSQLItems();
+  const doCopy=()=>navigator.clipboard.writeText(plainSQL()).then(()=>toast('已复制 '+items.length+' 条SQL到剪贴板')).catch(()=>toast('复制失败：浏览器无剪贴板权限'));
+  if(items.some(d=>d.change==='DROP') && !confirm('含 DROP 高危语句，确认复制吗？')) return;
+  doCopy();
+}
+function exportSQL(){
+  const blob=new Blob([plainSQL()],{type:'text/sql'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='sqldiff_'+Date.now()+'.sql'; a.click(); URL.revokeObjectURL(a.href);
+  toast('已导出 .sql（含头注释，顺序 DROP→CREATE→CHANGE）');
+}
+
+// ── toast ──
+let toastTimer;
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),2200); }
+
+// init
+renderNodes(); renderDiff();
+</script>
+</body>
+</html>
