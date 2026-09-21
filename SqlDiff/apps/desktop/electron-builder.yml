@@ -1,0 +1,25 @@
+appId: com.sqldiff.desktop
+productName: SqlDiff
+copyright: Copyright © 2026 SqlDiff
+directories:
+  output: release
+files:
+  - dist-main/**/*
+  - dist-renderer/**/*
+  - package.json
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: SqlDiff
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  category: public.app-category.developer-tools
