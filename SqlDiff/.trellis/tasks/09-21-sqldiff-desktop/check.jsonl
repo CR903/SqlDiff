@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "校验UI代码质量"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "校验main进程与diff引擎质量"}
