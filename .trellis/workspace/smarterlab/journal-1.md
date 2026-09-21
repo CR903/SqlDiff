@@ -30,3 +30,26 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 2: M7打包冒烟闭环
+<!-- trellis-session: v=2 fp=b186dbd266c1a564 -->
+
+**Date**: 2026-09-21
+**Task**: M7打包冒烟闭环
+**Branch**: `main`
+
+### Summary
+
+双端包全出(arm64 dmg/x64 dmg/Win setup);真库521项对比冒烟只读通过;SSH单跳待节点;归档m7
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c710d09` | fix(desktop): electron移devDeps+补author修打包 |
+| `8e1f6d2` | chore(m7): 打包冒烟任务PRD+冒烟报告 |
+
+### Status
+
+[OK] **Completed**
