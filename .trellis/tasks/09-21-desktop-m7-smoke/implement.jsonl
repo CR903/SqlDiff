@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "main进程DB/打包冒烟规范"}
+{"file": "apps/desktop/electron-builder.yml", "reason": "双端打包配置核对"}
