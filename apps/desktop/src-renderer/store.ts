@@ -2,18 +2,22 @@ import { create } from 'zustand';
 import type {
   ChangeType,
   ConnTestResult,
+  DataTablePair,
+  DataTableStatus,
   DiffItem,
+  DmlType,
   ExportJSON,
   HistoryEntry,
   NodeMeta,
   ObjectType,
   SecretBundle,
 } from '../src-core/types';
-import type { NodeCreateInput, SqlDiffApi } from '../src-main/preload';
+import type { DataTableLists, NodeCreateInput, SqlDiffApi } from '../src-main/preload';
 import { runDemoCompare } from './demo';
 
 export type LeftTab = 'hist' | 'mine' | 'fav';
 export type DiffFilter = 'ALL' | ChangeType;
+export type DmlFilter = 'ALL' | DmlType;
 export type SlotId = 'A' | 'B';
 export type ObjectTypeFilter = ObjectType | 'ALL';
 
@@ -91,6 +95,16 @@ function writeLastCombo(aId: string | null, bId: string | null): void {
   }
 }
 
+/** 数据逐表状态 -> 中文（进度条文本用）。 */
+function tableStatusText(status: string): string {
+  if (status === 'running') return '对比中';
+  if (status === 'done') return '完成';
+  if (status === 'skipped') return '跳过（无主键）';
+  if (status === 'error') return '失败';
+  if (status === 'confirm-needed') return '超阈待确认';
+  return status;
+}
+
 interface DesktopState {
   /** 节点库 */
   nodes: NodeMeta[];
@@ -104,8 +118,21 @@ interface DesktopState {
   slotB: string | null;
   scopes: ObjectType[];
   tableFilter: string;
+  /** 数据对比开关（范围勾选“数据”，与结构四项并列）。 */
+  includeData: boolean;
+  /** 数据表映射（同名自动 + 手动改 B 下拉；空则服务端按同名交集跑）。 */
+  dataPairs: DataTablePair[];
+  /** A/B 表清单（映射下拉选项，载入后填充）。 */
+  dataLists: DataTableLists;
+  dataListsLoading: boolean;
+  /** 逐表状态行（待比/进行中/完成/跳过/失败/待确认）。 */
+  dataStatus: DataTableStatus[];
+  /** 超阈大表已二次确认（重跑时透传 dataOptions.confirmOverThreshold）。 */
+  confirmDataThreshold: boolean;
   /** 差异 focus：当前 Tab + 对象类型二级过滤 + 选中行 */
   diffFilter: DiffFilter;
+  /** 数据三 Tab 当前项 */
+  dmlFilter: DmlFilter;
   objectTypeFilter: ObjectTypeFilter;
   items: DiffItem[];
   selectedId: string | null;
@@ -126,13 +153,22 @@ interface DesktopState {
   toggleScope: (s: ObjectType) => void;
   setTableFilter: (v: string) => void;
   setDiffFilter: (f: DiffFilter) => void;
+  setDmlFilter: (f: DmlFilter) => void;
   setObjectTypeFilter: (f: ObjectTypeFilter) => void;
+  toggleIncludeData: () => void;
+  setDataPairs: (pairs: DataTablePair[]) => void;
+  setDataPairB: (index: number, b: string) => void;
+  removeDataPair: (index: number) => void;
+  addDataPair: (a: string, b: string) => void;
+  setConfirmDataThreshold: (v: boolean) => void;
+  refreshDataTables: () => Promise<void>;
   selectDiff: (id: string | null) => void;
   setToast: (msg: string | null) => void;
   toggleStar: (id: string) => void;
   refreshNodes: () => Promise<void>;
   refreshHistory: () => Promise<void>;
   runCompare: () => Promise<void>;
+  cancelCompare: () => Promise<void>;
   /** 新增 / 编辑节点（secret 为空表示不改动密钥；新建时可留空）。无主进程时抛错。 */
   saveNode: (input: NodeCreateInput, editingId?: string | null) => Promise<NodeMeta>;
   removeNode: (id: string) => Promise<void>;
@@ -154,7 +190,14 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
   slotB: null,
   scopes: ['table', 'view', 'procedure', 'function'],
   tableFilter: '',
+  includeData: false,
+  dataPairs: [],
+  dataLists: { a: [], b: [] },
+  dataListsLoading: false,
+  dataStatus: [],
+  confirmDataThreshold: false,
   diffFilter: 'ALL',
+  dmlFilter: 'ALL',
   objectTypeFilter: 'ALL',
   items: [],
   selectedId: null,
@@ -200,7 +243,47 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
     })),
   setTableFilter: (v) => set({ tableFilter: v }),
   setDiffFilter: (f) => set({ diffFilter: f, selectedId: null }),
+  setDmlFilter: (f) => set({ dmlFilter: f, selectedId: null }),
   setObjectTypeFilter: (f) => set({ objectTypeFilter: f, selectedId: null }),
+  toggleIncludeData: () => set((s) => ({ includeData: !s.includeData })),
+  setDataPairs: (pairs) => set({ dataPairs: pairs }),
+  setDataPairB: (index, b) =>
+    set((s) => ({ dataPairs: s.dataPairs.map((p, i) => (i === index ? { ...p, b } : p)) })),
+  removeDataPair: (index) => set((s) => ({ dataPairs: s.dataPairs.filter((_, i) => i !== index) })),
+  addDataPair: (a, b) => {
+    if (!a || !b) return;
+    set((s) =>
+      s.dataPairs.some((p) => p.a === a && p.b === b) ? {} : { dataPairs: [...s.dataPairs, { a, b }] },
+    );
+  },
+  setConfirmDataThreshold: (v) => set({ confirmDataThreshold: v }),
+  refreshDataTables: async () => {
+    const s = get();
+    const api = getIpc();
+    if (!api) {
+      set({ toast: '当前为预览模式（无主进程），请在 Electron 中运行以载入表清单' });
+      return;
+    }
+    if (!s.slotA || !s.slotB) {
+      set({ toast: '请先在 A / B 槽各放入一个节点' });
+      return;
+    }
+    set({ dataListsLoading: true });
+    try {
+      const lists = await api.data.tables(s.slotA, s.slotB);
+      const inB = new Set(lists.b);
+      const auto = lists.a.filter((t) => inB.has(t)).map((t) => ({ a: t, b: t }));
+      set({
+        dataLists: lists,
+        dataPairs: auto,
+        toast: `已载入表清单：A ${lists.a.length} / B ${lists.b.length}，同名配对 ${auto.length} 对`,
+      });
+    } catch (err) {
+      set({ toast: err instanceof Error ? err.message : '载入表清单失败' });
+    } finally {
+      set({ dataListsLoading: false });
+    }
+  },
   selectDiff: (id) => set({ selectedId: id }),
   setToast: (msg) => set({ toast: msg }),
   toggleStar: (id) => {
@@ -323,12 +406,12 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
       set({ toast: '请先在 A / B 槽各放入一个节点（拖拽或下拉选择）' });
       return;
     }
-    if (s.scopes.length === 0) {
-      set({ toast: '请至少勾选一个对比范围（表 / 视图 / 过程 / 函数）' });
+    if (s.scopes.length === 0 && !s.includeData) {
+      set({ toast: '请至少勾选一个对比范围（表 / 视图 / 过程 / 函数 / 数据）' });
       return;
     }
     const api = getIpc();
-    const { slotA, slotB, scopes, tableFilter } = s;
+    const { slotA, slotB, scopes, tableFilter, includeData, dataPairs, confirmDataThreshold } = s;
     const nodes = s.nodes;
     const aliasOf = (id: string | null): string =>
       nodes.find((n) => n.id === id)?.alias ?? (id ?? '未选');
@@ -336,22 +419,47 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
     const tick = (pct: number, text: string): void => {
       set({ progressPct: pct, progress: text });
     };
+    // 数据进度订阅（主进程 compare.progress 事件；demo/无后端时为空）。
+    const unsub = api
+      ? api.compare.onProgress((msg) => {
+          if (msg.type === 'fetch') {
+            const pct =
+              msg.total > 0 ? 30 + Math.min(60, Math.round((msg.fetched / msg.total) * 60)) : 50;
+            tick(pct, `数据 ${msg.table} 拉取 ${msg.side}: ${msg.fetched}/${msg.total}`);
+          } else {
+            tick(50, `数据 ${msg.table}：${tableStatusText(msg.status)}${msg.detail ? `（${msg.detail}）` : ''}`);
+          }
+        })
+      : null;
     try {
       if (api) {
         tick(30, '拉取元数据（information_schema + SHOW CREATE）…');
         const result = await api.compare.run({
           aId: slotA,
           bId: slotB,
-          scopes,
+          scopes: includeData ? [...scopes, 'data'] : scopes,
           tableFilter,
+          includeData,
+          ...(dataPairs.length > 0 ? { dataTables: dataPairs } : {}),
+          ...(confirmDataThreshold ? { dataOptions: { confirmOverThreshold: true } } : {}),
         });
         tick(85, '分类 + 风险评估…');
+        const dataNote =
+          result.dataTables && result.dataTables.length > 0
+            ? ` · 数据 ${result.dataTables.length} 表（I${result.stats.DML.INSERT}/D${result.stats.DML.DELETE}/U${result.stats.DML.UPDATE}）`
+            : '';
+        const needConfirm = (result.dataTables ?? []).some((t) => t.status === 'confirm-needed');
         set({
           items: result.items,
+          dataStatus: result.dataTables ?? [],
           selectedId: null,
           diffFilter: 'ALL',
-          lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · ${scopes.join('/')} · ${new Date().toLocaleTimeString()} · ${result.stats.ALL} 条差异`,
-          toast: `对比完成：发现 ${result.stats.ALL} 条差异`,
+          dmlFilter: 'ALL',
+          confirmDataThreshold: false,
+          lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · ${scopes.join('/')}${includeData ? '/data' : ''} · ${new Date().toLocaleTimeString()} · ${result.stats.ALL} 条差异${dataNote}`,
+          toast: needConfirm
+            ? '对比完成：部分大表超阈待确认，请二次确认后重跑'
+            : `对比完成：发现 ${result.stats.ALL} 条差异${dataNote}`,
         });
         // 成功后刷新历史 + 本地使用频次（常用 Tab 排序依据），频次顺手持久化到主进程。
         set((prev) => ({
@@ -381,16 +489,35 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
         err instanceof Error && err.message !== 'no-ipc' ? `（${err.message}）` : '';
       set({
         items: demo.items,
+        dataStatus: [],
         selectedId: null,
         diffFilter: 'ALL',
+        dmlFilter: 'ALL',
+        confirmDataThreshold: false,
         lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · 本地示例数据${reason}`,
         toast: isNoIpc
-          ? `已用本地示例数据演示（${demo.stats.ALL} 条）`
+          ? `已用本地示例数据演示（${demo.stats.ALL} 条，数据对比需 Electron 后端）`
           : `后端对比失败，已用本地示例数据演示${reason}`,
       });
     } finally {
+      try {
+        unsub?.();
+      } catch {
+        // 忽略取消订阅异常。
+      }
       tick(100, '');
       set({ comparing: false, progressPct: 0, progress: '' });
+    }
+  },
+
+  cancelCompare: async () => {
+    const api = getIpc();
+    if (!api) return;
+    try {
+      await api.compare.cancel();
+      set({ toast: '已发送取消请求，正在中断数据拉取…' });
+    } catch {
+      // 忽略。
     }
   },
 }));

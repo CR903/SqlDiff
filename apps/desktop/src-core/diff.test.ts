@@ -241,7 +241,7 @@ describe('compareRun 组装/统计/排序', () => {
   it('空快照 -> 零条目', () => {
     const r = compareRun(meta(), meta());
     expect(r.items).toEqual([]);
-    expect(r.stats).toEqual({ ALL: 0, CREATE: 0, DROP: 0, CHANGE: 0 });
+    expect(r.stats).toEqual({ ALL: 0, CREATE: 0, DROP: 0, CHANGE: 0, DML: { INSERT: 0, DELETE: 0, UPDATE: 0 } });
   });
 
   it('组装：新增表 CREATE + 删除过程 DROP + 变更视图 CHANGE，统计与排序 DROP->CREATE->CHANGE', () => {
@@ -257,7 +257,7 @@ describe('compareRun 组装/统计/排序', () => {
     });
     const r = compareRun(a, b);
     expect(r.items).toHaveLength(3);
-    expect(r.stats).toEqual({ ALL: 3, CREATE: 1, DROP: 1, CHANGE: 1 });
+    expect(r.stats).toEqual({ ALL: 3, CREATE: 1, DROP: 1, CHANGE: 1, DML: { INSERT: 0, DELETE: 0, UPDATE: 0 } });
     expect(r.items.map((i) => i.changeType)).toEqual(['DROP', 'CREATE', 'CHANGE']);
     expect(r.items[0]?.objectName).toBe('p_old');
     expect(r.items[1]?.objectName).toBe('users');

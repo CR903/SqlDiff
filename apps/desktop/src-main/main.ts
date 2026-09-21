@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { app, BrowserWindow, clipboard, ipcMain, safeStorage } from 'electron';
+import type { Pool } from 'mysql2/promise';
 import type {
   ConnTestResult,
   ExportJSON,
@@ -22,7 +23,8 @@ import {
   saveNodes,
 } from './store-json';
 import { Vault, parseLegacyConnectionString, type SafeStorageLike } from './vault';
-import { closeAll, testConnection } from './connection';
+import { closeAll, createMysqlPool, testConnection } from './connection';
+import { listTables } from './metadata';
 
 // M2：vault（safeStorage + OS 钥匙串 / AES-GCM 回退）+ nodes.json / history.json 接线。
 // M3：mysql2/promise + ssh2 单跳隧道池；nodes.test 走 vault 取密钥后调 testConnection，
@@ -263,10 +265,65 @@ function registerHistoryIpc(): void {
 function registerIpc(): void {
   registerNodesIpc();
   registerHistoryIpc();
-  // M5：compare.run 经 compare-run.ts（元数据拉取 + core 对比 + 历史落盘）。
+  // 数据对比取消：进行中的 compare.run 分页循环经 AbortSignal 中断。
+  let dataAbort: AbortController | null = null;
+  ipcMain.handle('compare.cancel', () => {
+    if (dataAbort) {
+      dataAbort.abort();
+      return true;
+    }
+    return false;
+  });
+  // 数据表映射下拉：A/B 表清单（只读 SHOW 全表名，不拉 DDL）。
+  ipcMain.handle('data.tables', async (_event, aId: string, bId: string) => {
+    const { userDataDir, vault } = getContext();
+    if (typeof aId !== 'string' || !aId || typeof bId !== 'string' || !bId) {
+      throw new Error('data: 缺少 A / B 节点 id');
+    }
+    const nodes = loadNodes(userDataDir);
+    const nodeA = nodes.find((n) => n.id === aId);
+    const nodeB = nodes.find((n) => n.id === bId);
+    if (!nodeA || !nodeB) throw new Error('data: A / B 节点不存在，请重新选择');
+    let poolA: Pool | null = null;
+    let poolB: Pool | null = null;
+    try {
+      [poolA, poolB] = await Promise.all([
+        createMysqlPool(nodeA, vault.getNodeSecret(aId) ?? {}),
+        createMysqlPool(nodeB, vault.getNodeSecret(bId) ?? {}),
+      ]);
+      const [a, b] = await Promise.all([
+        listTables(poolA as unknown as Parameters<typeof listTables>[0], nodeA.database),
+        listTables(poolB as unknown as Parameters<typeof listTables>[0], nodeB.database),
+      ]);
+      return { a, b };
+    } finally {
+      await Promise.allSettled([poolA?.end(), poolB?.end()]);
+    }
+  });
+  // M5：compare.run 经 compare-run.ts（元数据拉取 + core 对比 + 历史落盘；scope 含 data 时追加数据对比）。
   ipcMain.handle('compare.run', (event, req: CompareRequest) => {
-    void event;
-    return runCompareRequest(req, getContext());
+    const ctrl = new AbortController();
+    dataAbort = ctrl;
+    const sender = event.sender;
+    const post = (msg: unknown): void => {
+      try {
+        sender.send('compare.progress', msg);
+      } catch {
+        // 窗口已关时忽略。
+      }
+    };
+    return runCompareRequest(
+      req,
+      getContext(),
+      {
+        signal: ctrl.signal,
+        onTable: (table, status, detail) => post({ type: 'table', table, status, detail }),
+        onFetchProgress: (table, side, fetched, total) =>
+          post({ type: 'fetch', table, side, fetched, total }),
+      },
+    ).finally(() => {
+      if (dataAbort === ctrl) dataAbort = null;
+    });
   });
   // M5：sql.format 经 sql-formatter（mysql 方言，关键字大写）；失败回落原文。
   ipcMain.handle('sql.format', (event, sql: string) => {

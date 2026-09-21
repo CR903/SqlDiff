@@ -144,3 +144,12 @@ button.star { background: none; border: none; cursor: pointer; font-size: 14px; 
 .form-ok { margin-top: 10px; font-size: 12px; color: #86efac; background: #14532d33; border: 1px solid #14532d; border-radius: 8px; padding: 8px 12px; }
 .modal-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 .modal-actions-right { margin-left: auto; display: flex; gap: 8px; }
+/* 数据对比：表映射行 + 逐表状态 */
+.data-pair-row { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-top: 6px; }
+.data-pair-row .slot-select { margin-top: 0; width: auto; flex: 1; }
+.data-status { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto; }
+.data-status-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: #94a3b8; background: #0b0f14; border: 1px solid #2a3648; border-radius: 6px; padding: 4px 8px; }
+.data-status-row.st-done { border-color: #14532d; }
+.data-status-row.st-error { border-color: #7f1d1d; color: #fca5a5; }
+.data-status-row.st-skipped { border-color: #713f12; color: #fcd34d; }
+.data-status-row.st-confirm-needed { border-color: #713f12; color: #fcd34d; }

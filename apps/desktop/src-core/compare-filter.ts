@@ -5,7 +5,7 @@
 
 import type { DatabaseMetadata } from '../src-main/metadata';
 import { sortDiffItems } from './compare';
-import type { CompareResult, DiffItem, ObjectType } from './types';
+import type { CompareResult, DataScope, DiffItem, ObjectType } from './types';
 
 export const ALL_SCOPES: ObjectType[] = ['table', 'view', 'procedure', 'function'];
 
@@ -15,6 +15,12 @@ export function normalizeScopes(scopes: unknown): ObjectType[] {
     (s): s is ObjectType => s === 'table' || s === 'view' || s === 'procedure' || s === 'function',
   );
   return kept.length > 0 ? [...new Set(kept)] : [...ALL_SCOPES];
+}
+
+/** 数据对比是否开启：显式开关或 scopes 携带 'data' 任一成立。 */
+export function hasDataScope(scopes: unknown, includeData?: boolean): boolean {
+  if (includeData === true) return true;
+  return Array.isArray(scopes) && (scopes as unknown[]).includes('data' as DataScope);
 }
 
 /** 按 scopes 裁剪快照：被排除的对象类型直接清空（compareRun 侧不再产出）。 */
@@ -29,23 +35,40 @@ export function filterMetadataByScopes(meta: DatabaseMetadata, scopes: ObjectTyp
 }
 
 export function recountStats(items: DiffItem[]): CompareResult['stats'] {
-  const stats: CompareResult['stats'] = { ALL: items.length, CREATE: 0, DROP: 0, CHANGE: 0 };
-  for (const it of items) stats[it.changeType] += 1;
+  const stats: CompareResult['stats'] = {
+    ALL: items.length,
+    CREATE: 0,
+    DROP: 0,
+    CHANGE: 0,
+    DML: { INSERT: 0, DELETE: 0, UPDATE: 0 },
+  };
+  for (const it of items) {
+    stats[it.changeType] += 1;
+    if (it.dml) stats.DML[it.dml] += 1;
+  }
   return stats;
 }
 
 /**
  * 后过滤（展示一致性兜底）：scopes + 表名子串（大小写不敏感）。
- * tableFilter 只作用于 table 类型（与 fetchMetadata 一致），视图/例程不受影响。
+ * tableFilter 只作用于 table 类型（与 fetchMetadata 一致），视图/例程不受影响；
+ * 数据行（objectType:'data'）不受结构 scopes 裁剪（数据开关由 hasDataScope 控制），
+ * 仅在有 tableFilter 时按表名/SQL 子串过滤，保证“复制=所见”不丢数。
  */
 export function postFilterResult(
   items: DiffItem[],
   scopes: ObjectType[],
   tableFilter?: string,
 ): CompareResult {
-  const on = new Set(scopes);
+  const on = new Set<string>(scopes);
   const kw = (tableFilter ?? '').trim().toLowerCase();
   const filtered = items.filter((it) => {
+    if (it.objectType === 'data') {
+      if (kw && !(it.objectName.toLowerCase().includes(kw) || it.sql.toLowerCase().includes(kw))) {
+        return false;
+      }
+      return true;
+    }
     if (!on.has(it.objectType)) return false;
     if (kw && it.objectType === 'table') {
       if (!(it.objectName.toLowerCase().includes(kw) || it.sql.toLowerCase().includes(kw))) return false;

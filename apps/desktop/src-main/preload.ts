@@ -45,9 +45,20 @@ export interface NodeUpdateInput {
   secret?: SecretBundle | null;
 }
 
+/** 数据表清单（表映射下拉用：同名自动 + 手动改 B）。 */
+export interface DataTableLists {
+  a: string[];
+  b: string[];
+}
+
 export interface NodesImportResult {
   imported: number;
 }
+
+/** 主进程 -> 渲染的数据对比进度事件（compare.progress 通道）。 */
+export type CompareProgressEvent =
+  | { type: 'table'; table: string; status: string; detail?: string }
+  | { type: 'fetch'; table: string; side: 'A' | 'B'; fetched: number; total: number };
 
 export interface SqlDiffApi {
   nodes: {
@@ -74,6 +85,14 @@ export interface SqlDiffApi {
   };
   compare: {
     run: (req: CompareRequest) => Promise<CompareResult>;
+    /** 取消进行中的数据拉取（AbortSignal，主进程侧中断分页循环）。 */
+    cancel: () => Promise<boolean>;
+    /** 订阅数据对比进度（返回取消订阅函数）。 */
+    onProgress: (cb: (msg: CompareProgressEvent) => void) => () => void;
+  };
+  data: {
+    /** A/B 表清单（表映射下拉选项）。 */
+    tables: (aId: string, bId: string) => Promise<DataTableLists>;
   };
   sql: {
     format: (sql: string) => Promise<string>;
@@ -104,6 +123,16 @@ const api: SqlDiffApi = {
   },
   compare: {
     run: (req: CompareRequest) => ipcRenderer.invoke('compare.run', req) as Promise<CompareResult>,
+    cancel: () => ipcRenderer.invoke('compare.cancel') as Promise<boolean>,
+    onProgress: (cb: (msg: CompareProgressEvent) => void) => {
+      const handler = (_event: unknown, msg: CompareProgressEvent): void => cb(msg);
+      ipcRenderer.on('compare.progress', handler as (...args: unknown[]) => void);
+      return () => ipcRenderer.removeListener('compare.progress', handler as (...args: unknown[]) => void);
+    },
+  },
+  data: {
+    tables: (aId: string, bId: string) =>
+      ipcRenderer.invoke('data.tables', aId, bId) as Promise<DataTableLists>,
   },
   sql: {
     format: (sql: string) => ipcRenderer.invoke('sql.format', sql) as Promise<string>,

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useDesktopStore, type DiffFilter, type LeftTab, type ObjectTypeFilter, type SlotId } from './store';
-import type { DiffItem, HistoryEntry, NodeMeta, ObjectType, SecretBundle } from '../src-core/types';
-import type { NodeCreateInput } from '../src-main/preload';
+import { useDesktopStore, type DiffFilter, type DmlFilter, type LeftTab, type ObjectTypeFilter, type SlotId } from './store';
+import type { DataTableStatus, DiffItem, HistoryEntry, NodeMeta, ObjectType, SecretBundle } from '../src-core/types';
+import type { DataTableLists, NodeCreateInput } from '../src-main/preload';
 import { buildExportText, copyText, downloadSqlFile, highlightSql } from './sql';
 
 // M5 正式 UI 三栏联调：左 NodeLibrary / 中 CompareSlots + DiffTable / 右 SqlPreview。
@@ -26,6 +26,13 @@ const DIFF_TABS: Array<{ value: DiffFilter; label: string }> = [
   { value: 'CREATE', label: 'CREATE' },
   { value: 'DROP', label: 'DROP' },
   { value: 'CHANGE', label: 'CHANGE' },
+];
+
+const DML_TABS: Array<{ value: DmlFilter; label: string }> = [
+  { value: 'ALL', label: '全部' },
+  { value: 'INSERT', label: 'INSERT' },
+  { value: 'DELETE', label: 'DELETE' },
+  { value: 'UPDATE', label: 'UPDATE' },
 ];
 
 const OBJ_FILTERS: Array<{ value: ObjectTypeFilter; label: string }> = [
@@ -387,6 +394,7 @@ function CompareSlots({
   slotA,
   slotB,
   scopes,
+  includeData,
   tableFilter,
   comparing,
   progress,
@@ -397,13 +405,16 @@ function CompareSlots({
   onSwap,
   onClear,
   onToggleScope,
+  onToggleIncludeData,
   onTableFilter,
   onRun,
+  onCancel,
 }: {
   nodes: NodeMeta[];
   slotA: string | null;
   slotB: string | null;
   scopes: ObjectType[];
+  includeData: boolean;
   tableFilter: string;
   comparing: boolean;
   progress: string;
@@ -414,10 +425,12 @@ function CompareSlots({
   onSwap: () => void;
   onClear: () => void;
   onToggleScope: (s: ObjectType) => void;
+  onToggleIncludeData: () => void;
   onTableFilter: (v: string) => void;
   onRun: () => void;
+  onCancel: () => void;
 }) {
-  const canRun = !comparing && !!slotA && !!slotB && scopes.length > 0;
+  const canRun = !comparing && !!slotA && !!slotB && (scopes.length > 0 || includeData);
   return (
     <div className="card">
       <div className="slots">
@@ -443,6 +456,9 @@ function CompareSlots({
             {s.label}
           </label>
         ))}
+        <label title="数据行对比：主键范围分页拉取，只读生成 INSERT/DELETE/UPDATE">
+          <input type="checkbox" checked={includeData} onChange={onToggleIncludeData} /> 数据
+        </label>
         <input
           className="table-filter"
           placeholder="表搜索过滤…"
@@ -453,6 +469,11 @@ function CompareSlots({
         <button className="btn btn-primary" disabled={!canRun} onClick={onRun} title="快捷键 ⌘/Ctrl + Enter">
           {comparing ? '对比中…' : '对比 ⚡'}
         </button>
+        {comparing && (
+          <button className="btn btn-ghost" onClick={onCancel} title="中断数据拉取（结构对比不可中断）">
+            取消
+          </button>
+        )}
       </div>
       {comparing && (
         <div className="progress" role="progressbar" aria-label="对比进度">
@@ -555,23 +576,257 @@ function DiffTable({
 }
 
 // ---------------------------------------------------------------------------
+// 数据对比：表映射 + 逐表状态 + 独立 INSERT/DELETE/UPDATE 三 Tab
+// ---------------------------------------------------------------------------
+
+function dataStatusText(s: DataTableStatus): string {
+  if (s.status === 'done')
+    return `完成（A${s.countA ?? '?'}行/B${s.countB ?? '?'}行，I${s.insertCount ?? 0}/D${s.deleteCount ?? 0}/U${s.updateCount ?? 0}）`;
+  if (s.status === 'running') return '进行中…';
+  if (s.status === 'skipped')
+    return `跳过无主键${s.countA != null || s.countB != null ? `（A${s.countA ?? '?'}行/B${s.countB ?? '?'}行）` : ''} — ${s.message ?? ''}`;
+  if (s.status === 'confirm-needed') return `超阈待确认 — ${s.message ?? ''}`;
+  if (s.status === 'error') return `失败 — ${s.message ?? '未知错误'}`;
+  return '待比';
+}
+
+function DataSection({
+  lists,
+  listsLoading,
+  pairs,
+  statusRows,
+  needConfirm,
+  onLoadLists,
+  onSetPairB,
+  onRemovePair,
+  onAddPair,
+  onConfirmRerun,
+  onToast,
+}: {
+  lists: DataTableLists;
+  listsLoading: boolean;
+  pairs: Array<{ a: string; b: string }>;
+  statusRows: DataTableStatus[];
+  needConfirm: boolean;
+  onLoadLists: () => void;
+  onSetPairB: (index: number, b: string) => void;
+  onRemovePair: (index: number) => void;
+  onAddPair: (a: string, b: string) => void;
+  onConfirmRerun: () => void;
+  onToast: (msg: string) => void;
+}) {
+  const [addA, setAddA] = useState('');
+  const [addB, setAddB] = useState('');
+  return (
+    <div className="card">
+      <div className="pane-head">
+        <h2>数据表映射</h2>
+        <button className="btn btn-sm" disabled={listsLoading} onClick={onLoadLists}>
+          {listsLoading ? '载入中…' : '载入表清单（同名自动配对）'}
+        </button>
+      </div>
+      {pairs.length === 0 && (
+        <div className="empty">未配置映射时按 A/B 同名交集跑；也可先载入清单再手动改 B 表下拉 / 增删行。</div>
+      )}
+      {pairs.map((p, i) => (
+        <div className="data-pair-row" key={`${p.a}→${p.b}@${i}`}>
+          <span className="mono">{p.a}</span>
+          <span> → </span>
+          <select
+            className="slot-select"
+            value={p.b}
+            onChange={(e) => onSetPairB(i, e.target.value)}
+            title="手动改 B 表映射"
+          >
+            {lists.b.includes(p.b) ? null : <option value={p.b}>{p.b}</option>}
+            {lists.b.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+          <button className="mini-btn danger" title="删除本行映射" onClick={() => onRemovePair(i)}>
+            删
+          </button>
+        </div>
+      ))}
+      <div className="data-pair-row">
+        <select className="slot-select" value={addA} onChange={(e) => setAddA(e.target.value)} title="A 表">
+          <option value="">A 表…</option>
+          {lists.a.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+        <span> → </span>
+        <select className="slot-select" value={addB} onChange={(e) => setAddB(e.target.value)} title="B 表">
+          <option value="">B 表…</option>
+          {lists.b.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+        <button
+          className="mini-btn"
+          onClick={() => {
+            if (!addA || !addB) {
+              onToast('请先选 A / B 表');
+              return;
+            }
+            onAddPair(addA, addB);
+            setAddA('');
+            setAddB('');
+          }}
+        >
+          加一行
+        </button>
+      </div>
+      {statusRows.length > 0 && (
+        <div className="data-status">
+          {statusRows.map((s) => (
+            <div
+              className={`data-status-row st-${s.status}`}
+              key={`${s.a}→${s.b}`}
+              title={s.message ?? dataStatusText(s)}
+            >
+              <span className="mono">
+                {s.a} → {s.b}
+              </span>
+              <span>{dataStatusText(s)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {needConfirm && (
+        <div className="drop-alert">
+          ⚠️ 部分大表行数超阈（默认 10 万），已跳过。请确认后重跑。
+          <button className="btn btn-sm btn-primary" onClick={onConfirmRerun} title="二次确认超阈大表并重跑">
+            确认并重跑
+          </button>
+        </div>
+      )}
+      <p className="hint">💡 只读生成 INSERT/DELETE/UPDATE，不执行；无主键表跳过行级 diff，只给行数差异。</p>
+    </div>
+  );
+}
+
+function DataDiffTable({
+  counts,
+  rows,
+  dmlFilter,
+  onDmlFilter,
+  onSelect,
+  selectedId,
+  aName,
+  bName,
+  onToast,
+}: {
+  counts: Record<DmlFilter, number>;
+  rows: DiffItem[];
+  dmlFilter: DmlFilter;
+  onDmlFilter: (f: DmlFilter) => void;
+  onSelect: (id: string | null) => void;
+  selectedId: string | null;
+  aName: string;
+  bName: string;
+  onToast: (msg: string) => void;
+}) {
+  const handleCopy = async (): Promise<void> => {
+    if (rows.length === 0) {
+      onToast('暂无数据 SQL 可复制');
+      return;
+    }
+    const text = buildExportText(rows, { aName, bName, at: new Date().toISOString() });
+    const ok = await copyText(text);
+    onToast(ok ? `已复制数据 ${dmlFilter}（${rows.length}条）到剪贴板` : '复制失败：无剪贴板权限');
+  };
+  const handleExport = (): void => {
+    if (rows.length === 0) {
+      onToast('暂无数据 SQL 可导出');
+      return;
+    }
+    const text = buildExportText(rows, { aName, bName, at: new Date().toISOString() });
+    downloadSqlFile(`sqldiff_data_${dmlFilter.toLowerCase()}_${Date.now()}.sql`, text);
+    onToast(`已导出数据 ${dmlFilter} .sql（含头注释，共 ${rows.length} 条）`);
+  };
+  return (
+    <div className="card diff-card">
+      <div className="diff-tabs">
+        {DML_TABS.map((t) => (
+          <button
+            key={t.value}
+            className={dmlFilter === t.value ? 'tab-btn active' : 'tab-btn'}
+            onClick={() => onDmlFilter(t.value)}
+          >
+            {t.label} ({counts[t.value]})
+          </button>
+        ))}
+        <span className="diff-stat">数据 {rows.length} 条（只读生成，未执行）</span>
+        <span className="diff-stat">
+          <button className="mini-btn" onClick={() => void handleCopy()}>
+            ⧉ 复制本类
+          </button>{' '}
+          <button className="mini-btn" onClick={handleExport}>
+            导出本类 .sql
+          </button>
+        </span>
+      </div>
+      <div className="diff-scroll">
+        <table className="diff-table">
+          <thead>
+            <tr>
+              <th>表</th>
+              <th>DML</th>
+              <th>风险</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r: DiffItem) => (
+              <tr
+                key={r.id}
+                className={selectedId === r.id ? 'diff-row selected' : 'diff-row'}
+                onClick={() => onSelect(selectedId === r.id ? null : r.id)}
+              >
+                <td className="mono">{r.objectName}</td>
+                <td>
+                  <span className={`badge b-${r.changeType.toLowerCase()}`}>{r.dml ?? r.changeType}</span>
+                </td>
+                <td className={riskClass(r.risk)}>{riskLabel(r.risk)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {rows.length === 0 && <div className="empty">该类暂无数据差异 🍃</div>}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 右栏：SQL 预览
 // ---------------------------------------------------------------------------
 
 function SqlPreview({
   tabItems,
+  extraItems = [],
   selectedId,
   aName,
   bName,
   onToast,
 }: {
   tabItems: DiffItem[];
+  /** 数据 Tab 行（仅供选中单条预览，不参与“当前Tab全部”复制/导出）。 */
+  extraItems?: DiffItem[];
   selectedId: string | null;
   aName: string;
   bName: string;
   onToast: (msg: string) => void;
 }) {
-  const selected = selectedId ? tabItems.find((it) => it.id === selectedId) ?? null : null;
+  const selected = selectedId
+    ? (tabItems.find((it) => it.id === selectedId) ?? extraItems.find((it) => it.id === selectedId) ?? null)
+    : null;
   const current = selected ? [selected] : tabItems;
   const hasDrop = current.some((it) => it.changeType === 'DROP');
 
@@ -935,8 +1190,14 @@ export default function App() {
   const slotA = useDesktopStore((s) => s.slotA);
   const slotB = useDesktopStore((s) => s.slotB);
   const scopes = useDesktopStore((s) => s.scopes);
+  const includeData = useDesktopStore((s) => s.includeData);
+  const dataPairs = useDesktopStore((s) => s.dataPairs);
+  const dataLists = useDesktopStore((s) => s.dataLists);
+  const dataListsLoading = useDesktopStore((s) => s.dataListsLoading);
+  const dataStatus = useDesktopStore((s) => s.dataStatus);
   const tableFilter = useDesktopStore((s) => s.tableFilter);
   const diffFilter = useDesktopStore((s) => s.diffFilter);
+  const dmlFilter = useDesktopStore((s) => s.dmlFilter);
   const objectTypeFilter = useDesktopStore((s) => s.objectTypeFilter);
   const items = useDesktopStore((s) => s.items);
   const selectedId = useDesktopStore((s) => s.selectedId);
@@ -953,8 +1214,15 @@ export default function App() {
   const swapSlots = useDesktopStore((s) => s.swapSlots);
   const clearSlots = useDesktopStore((s) => s.clearSlots);
   const toggleScope = useDesktopStore((s) => s.toggleScope);
+  const toggleIncludeData = useDesktopStore((s) => s.toggleIncludeData);
+  const setDataPairB = useDesktopStore((s) => s.setDataPairB);
+  const removeDataPair = useDesktopStore((s) => s.removeDataPair);
+  const addDataPair = useDesktopStore((s) => s.addDataPair);
+  const setConfirmDataThreshold = useDesktopStore((s) => s.setConfirmDataThreshold);
+  const refreshDataTables = useDesktopStore((s) => s.refreshDataTables);
   const setTableFilter = useDesktopStore((s) => s.setTableFilter);
   const setDiffFilter = useDesktopStore((s) => s.setDiffFilter);
+  const setDmlFilter = useDesktopStore((s) => s.setDmlFilter);
   const setObjectTypeFilter = useDesktopStore((s) => s.setObjectTypeFilter);
   const selectDiff = useDesktopStore((s) => s.selectDiff);
   const setToast = useDesktopStore((s) => s.setToast);
@@ -962,6 +1230,7 @@ export default function App() {
   const refreshNodes = useDesktopStore((s) => s.refreshNodes);
   const refreshHistory = useDesktopStore((s) => s.refreshHistory);
   const runCompare = useDesktopStore((s) => s.runCompare);
+  const cancelCompare = useDesktopStore((s) => s.cancelCompare);
   const removeNode = useDesktopStore((s) => s.removeNode);
   const testNode = useDesktopStore((s) => s.testNode);
   const exportDoc = useDesktopStore((s) => s.exportDoc);
@@ -999,16 +1268,19 @@ export default function App() {
   }, [runCompare]);
 
   const kw = tableFilter.trim().toLowerCase();
+  // 结构组（不含数据行，数据走独立三 Tab）。
+  const structItems = useMemo(() => items.filter((it) => it.objectType !== 'data'), [items]);
+  const dataItems = useMemo(() => items.filter((it) => it.objectType === 'data'), [items]);
   const byObj = useMemo(
     () =>
-      items.filter(
+      structItems.filter(
         (it) =>
           (objectTypeFilter === 'ALL' || it.objectType === objectTypeFilter) &&
           (!kw ||
             it.objectName.toLowerCase().includes(kw) ||
             it.sql.toLowerCase().includes(kw)),
       ),
-    [items, objectTypeFilter, kw],
+    [structItems, objectTypeFilter, kw],
   );
   const counts = useMemo(() => {
     const c: Record<DiffFilter, number> = { ALL: byObj.length, CREATE: 0, DROP: 0, CHANGE: 0 };
@@ -1018,6 +1290,21 @@ export default function App() {
   const tabItems = useMemo(
     () => byObj.filter((it) => diffFilter === 'ALL' || it.changeType === diffFilter),
     [byObj, diffFilter],
+  );
+  const dmlCounts = useMemo(() => {
+    const c: Record<DmlFilter, number> = { ALL: dataItems.length, INSERT: 0, DELETE: 0, UPDATE: 0 };
+    for (const it of dataItems) {
+      if (it.dml) c[it.dml] += 1;
+    }
+    return c;
+  }, [dataItems]);
+  const dmlTabItems = useMemo(
+    () => dataItems.filter((it) => dmlFilter === 'ALL' || it.dml === dmlFilter),
+    [dataItems, dmlFilter],
+  );
+  const needConfirm = useMemo(
+    () => dataStatus.some((t) => t.status === 'confirm-needed'),
+    [dataStatus],
   );
 
   const aliasOf = (id: string | null): string =>
@@ -1134,6 +1421,7 @@ export default function App() {
             slotA={slotA}
             slotB={slotB}
             scopes={scopes}
+            includeData={includeData}
             tableFilter={tableFilter}
             comparing={comparing}
             progress={progress}
@@ -1147,12 +1435,32 @@ export default function App() {
             }}
             onClear={clearSlots}
             onToggleScope={toggleScope}
+            onToggleIncludeData={toggleIncludeData}
             onTableFilter={setTableFilter}
             onRun={() => void runCompare()}
+            onCancel={() => void cancelCompare()}
           />
+          {includeData && (
+            <DataSection
+              lists={dataLists}
+              listsLoading={dataListsLoading}
+              pairs={dataPairs}
+              statusRows={dataStatus}
+              needConfirm={needConfirm}
+              onLoadLists={() => void refreshDataTables()}
+              onSetPairB={setDataPairB}
+              onRemovePair={removeDataPair}
+              onAddPair={addDataPair}
+              onConfirmRerun={() => {
+                setConfirmDataThreshold(true);
+                void runCompare();
+              }}
+              onToast={setToast}
+            />
+          )}
           <DiffTable
             counts={counts}
-            total={items.length}
+            total={structItems.length}
             visibleCount={tabItems.length}
             rows={tabItems}
             diffFilter={diffFilter}
@@ -1162,10 +1470,24 @@ export default function App() {
             onSelect={selectDiff}
             selectedId={selectedId}
           />
+          {(includeData || dataItems.length > 0 || dataStatus.length > 0) && (
+            <DataDiffTable
+              counts={dmlCounts}
+              rows={dmlTabItems}
+              dmlFilter={dmlFilter}
+              onDmlFilter={setDmlFilter}
+              onSelect={selectDiff}
+              selectedId={selectedId}
+              aName={aliasOf(slotA)}
+              bName={aliasOf(slotB)}
+              onToast={setToast}
+            />
+          )}
         </section>
 
         <SqlPreview
           tabItems={tabItems}
+          extraItems={dataItems}
           selectedId={selectedId}
           aName={aliasOf(slotA)}
           bName={aliasOf(slotB)}

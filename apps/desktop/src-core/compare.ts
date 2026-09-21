@@ -4,7 +4,7 @@
 // 导出排序 DROP(0) -> CREATE(1) -> CHANGE(2)，同级按对象类型+对象名稳定排序。
 
 import type { DatabaseMetadata } from '../src-main/metadata';
-import type { ChangeType, CompareResult, DiffItem, ObjectType } from './types';
+import type { ChangeType, CompareResult, CompareStats, DiffItem, ObjectType } from './types';
 import { classify } from './classify';
 import { diffProcedure, diffTable, type RoutineKind } from './diff';
 import { assessRisk } from './risk';
@@ -15,12 +15,15 @@ export interface CompareRunOptions {
 }
 
 const CHANGE_ORDER: Record<ChangeType, number> = { DROP: 0, CREATE: 1, CHANGE: 2 };
-const OBJECT_ORDER: Record<ObjectType, number> = {
+const OBJECT_ORDER: Record<ObjectType | 'data', number> = {
   table: 0,
   view: 1,
   procedure: 2,
   function: 3,
+  data: 4,
 };
+/** 数据三 Tab 内顺序：INSERT -> DELETE -> UPDATE（结构项不受影响）。 */
+const DML_ORDER = { INSERT: 0, DELETE: 1, UPDATE: 2 } as const;
 
 function makeItem(
   objectType: ObjectType,
@@ -55,19 +58,24 @@ function unionSorted(a: Record<string, string | null>, b: Record<string, string 
   return [...set].sort((x, y) => x.localeCompare(y));
 }
 
-/** 排序：DROP -> CREATE -> CHANGE；同级按对象类型 -> 对象名。 */
+/** 排序：结构 DROP -> CREATE -> CHANGE（同级按对象类型 -> 对象名）；数据组内按 INSERT->DELETE->UPDATE。 */
 export function sortDiffItems(items: DiffItem[]): DiffItem[] {
   return [...items].sort((x, y) => {
+    // 数据行优先按 dml 三态排（Q1 独立三 Tab 顺序），避免 changeType 映射把 DELETE 顶到 INSERT 前。
+    if (x.objectType === 'data' && y.objectType === 'data' && x.dml && y.dml && x.dml !== y.dml) {
+      return DML_ORDER[x.dml] - DML_ORDER[y.dml];
+    }
     const c = CHANGE_ORDER[x.changeType] - CHANGE_ORDER[y.changeType];
     if (c !== 0) return c;
     const o = OBJECT_ORDER[x.objectType] - OBJECT_ORDER[y.objectType];
     if (o !== 0) return o;
+    if (x.dml && y.dml && x.dml !== y.dml) return DML_ORDER[x.dml] - DML_ORDER[y.dml];
     return x.objectName.localeCompare(y.objectName);
   });
 }
 
-function emptyStats(): CompareResult['stats'] {
-  return { ALL: 0, CREATE: 0, DROP: 0, CHANGE: 0 };
+function emptyStats(): CompareStats {
+  return { ALL: 0, CREATE: 0, DROP: 0, CHANGE: 0, DML: { INSERT: 0, DELETE: 0, UPDATE: 0 } };
 }
 
 /**
@@ -115,7 +123,10 @@ export function compareRun(
   const sorted = sortDiffItems(items);
   const stats = emptyStats();
   stats.ALL = sorted.length;
-  for (const it of sorted) stats[it.changeType] += 1;
+  for (const it of sorted) {
+    stats[it.changeType] += 1;
+    if (it.dml) stats.DML[it.dml] += 1;
+  }
   return { items: sorted, stats };
 }
 
@@ -137,5 +148,6 @@ export function toExportSql(
     '',
   ].join('\n');
   if (sorted.length === 0) return `${head}-- 无差异\n`;
-  return head + sorted.map((it) => `-- [${it.changeType}] ${it.objectType} ${it.objectName}\n${it.sql}`).join('\n');
+  // 数据行展示以 dml 为准（Q1 独立三 Tab），头注释用 dml 避免 INSERT 显示成 CREATE。
+  return head + sorted.map((it) => `-- [${it.dml ?? it.changeType}] ${it.objectType} ${it.objectName}\n${it.sql}`).join('\n');
 }
