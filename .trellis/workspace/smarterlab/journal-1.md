@@ -99,3 +99,27 @@ SSH密码22端口连通340ms,隧道被服务端拒;buildings行级删26改1通�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: UI修单四项+动词搜索R7收尾
+<!-- trellis-session: v=2 fp=de7ec76288e1688b -->
+
+**Date**: 2026-09-22
+**Task**: UI修单四项+动词搜索R7收尾
+**Branch**: `main`
+
+### Summary
+
+will-download落盘/错误消毒/全部Tab/筛选去重多选；verbOf动词chips；159测绿；归档ui-fix-batch+ddl-dml-index+small-enhance
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ba1f781` | feat(desktop): UNIQUE等价身份+选项可调+DDL/DML/INDEX三维过滤 |
+| `9881e57` | feat(desktop): 动词级搜索R7(verbOf+正交过滤+chips) |
+| `f83f91c` | feat(desktop): UI修单四项(落盘/消毒/全部Tab/筛选去重) |
+
+### Status
+
+[OK] **Completed**
