@@ -77,3 +77,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: SSH+行级冒烟验证闭环
+<!-- trellis-session: v=2 fp=c74d520ab44fe724 -->
+
+**Date**: 2026-09-22
+**Task**: SSH+行级冒烟验证闭环
+**Branch**: `main`
+
+### Summary
+
+SSH密码22端口连通340ms,隧道被服务端拒;buildings行级删26改1通过;80测绿;归档verify-closeout,AC-V2密钥待用户补后另起微任务
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7c550f3` | chore(verify): SSH+行级冒烟任务PRD+报告2 |
+
+### Status
+
+[OK] **Completed**

@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 3
-- **Last Active**: 2026-09-21
+- **Total Sessions**: 4
+- **Last Active**: 2026-09-22
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~79 | Active |
+| `journal-1.md` | ~101 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 4 | 2026-09-22 | SSH+行级冒烟验证闭环 | `7c550f3` | `main` |
 | 3 | 2026-09-21 | 数据二期+启动崩修复 | `8b9579c`, `75258ef`, `6b41c81` | `main` |
 | 2 | 2026-09-21 | M7打包冒烟闭环 | `c710d09`, `8e1f6d2` | `main` |
 | 1 | 2026-09-21 | SqlDiff桌面版M1-M5落地并推送 | `0e2214a`, `c888d17`, `2ffa0b0`, `4b296d8` | `main` |
