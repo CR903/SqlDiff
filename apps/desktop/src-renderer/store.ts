@@ -12,6 +12,7 @@ import type { ChangeType,
   SecretBundle,
   StmtAspect,
   StmtKind,
+  Verb,
 } from '../src-core/types';
 import {
   DEFAULT_BATCH_ROWS,
@@ -39,6 +40,10 @@ export type ObjectTypeFilter = ObjectType | 'ALL';
 export type StmtKindFilter = 'ALL' | StmtKind;
 /** R3 语句切面过滤（INDEX chip 等），只作用于结构列表。 */
 export type AspectFilter = 'ALL' | StmtAspect;
+/** R7 动词桶过滤（CREATE/DROP/ALTER/INSERT/UPDATE/DELETE 多选；'ALL' = 不限），与维度/切面/Tab/关键字正交 AND。 */
+export type VerbFilter = 'ALL' | Verb[];
+/** 动词 chips 行展示的六桶（OTHER 无桶，不可点选）。 */
+export const VERB_CHIPS: Verb[] = ['CREATE', 'DROP', 'ALTER', 'INSERT', 'UPDATE', 'DELETE'];
 
 const LAST_COMBO_KEY = 'sqldiff.lastCombo';
 
@@ -160,6 +165,8 @@ interface DesktopState {
   /** R1 一级维度（DDL/DML）+ R3 切面（INDEX chip），跨对比保留（派生过滤自动生效）。 */
   stmtKindFilter: StmtKindFilter;
   aspectFilter: AspectFilter;
+  /** R7 动词桶（多选 chips，空/'ALL' = 不限；与维度/切面/Tab 正交 AND，结构+数据两表同受约束）。 */
+  verbFilter: VerbFilter;
   items: DiffItem[];
   selectedId: string | null;
   /** 对比进度 */
@@ -183,6 +190,9 @@ interface DesktopState {
   setObjectTypeFilter: (f: ObjectTypeFilter) => void;
   setStmtKindFilter: (f: StmtKindFilter) => void;
   setAspectFilter: (f: AspectFilter) => void;
+  setVerbFilter: (f: VerbFilter) => void;
+  /** 动词 chip 开关：点选增删单个动词；清空或选满六桶时回落 'ALL'。 */
+  toggleVerb: (v: Verb) => void;
   toggleIncludeData: () => void;
   setDataPairs: (pairs: DataTablePair[]) => void;
   setDataPairB: (index: number, b: string) => void;
@@ -236,6 +246,7 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
   objectTypeFilter: 'ALL',
   stmtKindFilter: 'ALL',
   aspectFilter: 'ALL',
+  verbFilter: 'ALL',
   items: [],
   selectedId: null,
   comparing: false,
@@ -284,6 +295,15 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
   setObjectTypeFilter: (f) => set({ objectTypeFilter: f, selectedId: null }),
   setStmtKindFilter: (f) => set({ stmtKindFilter: f, selectedId: null }),
   setAspectFilter: (f) => set({ aspectFilter: f, selectedId: null }),
+  setVerbFilter: (f) => set({ verbFilter: f, selectedId: null }),
+  toggleVerb: (v) =>
+    set((s) => {
+      const cur = s.verbFilter === 'ALL' ? [] : s.verbFilter;
+      const next = cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v];
+      // 清空（不限）或选满六桶（= 不限）都回落 'ALL'，保证开关可逆可见。
+      const verbFilter: VerbFilter = next.length === 0 || next.length >= VERB_CHIPS.length ? 'ALL' : next;
+      return { verbFilter, selectedId: null };
+    }),
   toggleIncludeData: () => set((s) => ({ includeData: !s.includeData })),
   setDataPairs: (pairs) => set({ dataPairs: pairs }),
   setDataPairB: (index, b) =>
@@ -531,6 +551,7 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
           selectedId: null,
           diffFilter: 'ALL',
           dmlFilter: 'ALL',
+          verbFilter: 'ALL',
           confirmDataThreshold: false,
           lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · ${scopes.join('/')}${includeData ? '/data' : ''} · ${new Date().toLocaleTimeString()} · ${result.stats.ALL} 条差异${dataNote}`,
           toast: needConfirm
@@ -569,6 +590,7 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
         selectedId: null,
         diffFilter: 'ALL',
         dmlFilter: 'ALL',
+        verbFilter: 'ALL',
         confirmDataThreshold: false,
         lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · 本地示例数据${reason}`,
         toast: isNoIpc

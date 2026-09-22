@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useDesktopStore, type AspectFilter, type DiffFilter, type DmlFilter, type LeftTab, type ObjectTypeFilter, type SlotId, type StmtKindFilter } from './store';
-import type { DataTableStatus, DiffItem, HistoryEntry, NodeMeta, ObjectType, SecretBundle } from '../src-core/types';
+import { VERB_CHIPS, useDesktopStore, type AspectFilter, type DiffFilter, type DmlFilter, type LeftTab, type ObjectTypeFilter, type SlotId, type StmtKindFilter, type VerbFilter } from './store';
+import type { DataTableStatus, DiffItem, HistoryEntry, NodeMeta, ObjectType, SecretBundle, Verb } from '../src-core/types';
+import { verbOf } from '../src-core/classify';
 import type { DataTableLists, NodeCreateInput } from '../src-main/preload';
 import { buildExportText, copyText, downloadSqlFile, highlightSql } from './sql';
 
@@ -33,6 +34,12 @@ const DML_TABS: Array<{ value: DmlFilter; label: string }> = [
   { value: 'INSERT', label: 'INSERT' },
   { value: 'DELETE', label: 'DELETE' },
   { value: 'UPDATE', label: 'UPDATE' },
+];
+
+/** R7 动词 chips 分组展示（DDL组 + DML组；OTHER 无桶不展示）。 */
+const VERB_GROUPS: Array<{ label: string; verbs: Verb[] }> = [
+  { label: 'DDL', verbs: VERB_CHIPS.slice(0, 3) },
+  { label: 'DML', verbs: VERB_CHIPS.slice(3) },
 ];
 
 /** R1 一级维度：结构 DDL / 数据 DML（与 CREATE/DROP/CHANGE Tab、DML 三 Tab 正交组合）。 */
@@ -509,10 +516,14 @@ function DiffTable({
   stmtKindFilter,
   aspectFilter,
   indexCount,
+  verbFilter,
+  structVerbCounts,
+  dataVerbCounts,
   onDiffFilter,
   onObjFilter,
   onStmtKindFilter,
   onAspectFilter,
+  onToggleVerb,
   onSelect,
   selectedId,
 }: {
@@ -526,13 +537,22 @@ function DiffTable({
   aspectFilter: AspectFilter;
   /** 当前维度+类型视图下的索引语句数（chip 标签用，不过滤自身）。 */
   indexCount: number;
+  /** R7 动词桶选择（'ALL' = 不限；多选 OR，组间与维度/切面/Tab 正交 AND）。 */
+  verbFilter: VerbFilter;
+  /** 动词计数基座（Tab/动词自身不过滤，保证开关可逆可见；DDL 桶按结构基座，DML 桶按数据基座）。 */
+  structVerbCounts: Record<Verb, number>;
+  dataVerbCounts: Record<Verb, number>;
   onDiffFilter: (f: DiffFilter) => void;
   onObjFilter: (f: ObjectTypeFilter) => void;
   onStmtKindFilter: (f: StmtKindFilter) => void;
   onAspectFilter: (f: AspectFilter) => void;
+  onToggleVerb: (v: Verb) => void;
   onSelect: (id: string | null) => void;
   selectedId: string | null;
 }) {
+  const isVerbOn = (v: Verb): boolean => verbFilter !== 'ALL' && verbFilter.includes(v);
+  const verbCount = (v: Verb): number =>
+    v === 'INSERT' || v === 'UPDATE' || v === 'DELETE' ? dataVerbCounts[v] : structVerbCounts[v];
   return (
     <div className="card diff-card">
       <div className="diff-tabs">
@@ -577,6 +597,28 @@ function DiffTable({
         >
           INDEX ({indexCount})
         </button>
+      </div>
+      <div className="obj-filters" title="按语句首动词过滤（CREATE/DROP/ALTER/INSERT/UPDATE/DELETE 多选；与维度/切面/Tab/关键字正交 AND；复制=所见）">
+        <span className="diff-stat" style={{ marginLeft: 0 }}>
+          动词
+        </span>
+        {VERB_GROUPS.map((g) => (
+          <span key={g.label} style={{ display: 'contents' }}>
+            <span style={{ fontSize: 12, color: '#64748b', alignSelf: 'center' }} title={g.label === 'DDL' ? '结构语句动词' : '数据语句动词'}>
+              {g.label}
+            </span>
+            {g.verbs.map((v) => (
+              <button
+                key={v}
+                className={isVerbOn(v) ? 'chip active' : 'chip'}
+                title={`只看 ${v} 开头语句（当前 ${verbCount(v)} 条）`}
+                onClick={() => onToggleVerb(v)}
+              >
+                {v} ({verbCount(v)})
+              </button>
+            ))}
+          </span>
+        ))}
       </div>
       <div className="diff-scroll">
         <table className="diff-table">
@@ -1329,6 +1371,7 @@ export default function App() {
   const objectTypeFilter = useDesktopStore((s) => s.objectTypeFilter);
   const stmtKindFilter = useDesktopStore((s) => s.stmtKindFilter);
   const aspectFilter = useDesktopStore((s) => s.aspectFilter);
+  const verbFilter = useDesktopStore((s) => s.verbFilter);
   const items = useDesktopStore((s) => s.items);
   const selectedId = useDesktopStore((s) => s.selectedId);
   const comparing = useDesktopStore((s) => s.comparing);
@@ -1359,6 +1402,7 @@ export default function App() {
   const setObjectTypeFilter = useDesktopStore((s) => s.setObjectTypeFilter);
   const setStmtKindFilter = useDesktopStore((s) => s.setStmtKindFilter);
   const setAspectFilter = useDesktopStore((s) => s.setAspectFilter);
+  const toggleVerb = useDesktopStore((s) => s.toggleVerb);
   const selectDiff = useDesktopStore((s) => s.selectDiff);
   const setToast = useDesktopStore((s) => s.setToast);
   const toggleStar = useDesktopStore((s) => s.toggleStar);
@@ -1440,9 +1484,31 @@ export default function App() {
     for (const it of byAspect) c[it.changeType] += 1;
     return c;
   }, [byAspect]);
+  // R7 动词桶（多选 OR；空/'ALL' = 不限）：结构 + 数据两表同受约束，与维度/切面/Tab 正交 AND。
+  // 计数基座取 Tab/动词过滤前的列表（同 INDEX chip 模式，保证开关可逆可见）；
+  // Tab 计数（counts/dmlCounts）亦不扣减动词，对称可逆。
+  const verbSet = useMemo(
+    () => (verbFilter === 'ALL' ? null : new Set<Verb>(verbFilter)),
+    [verbFilter],
+  );
+  const structVerbCounts = useMemo(() => {
+    const c: Record<Verb, number> = { CREATE: 0, DROP: 0, ALTER: 0, INSERT: 0, UPDATE: 0, DELETE: 0, OTHER: 0 };
+    for (const it of byAspect) c[verbOf(it.sql)] += 1;
+    return c;
+  }, [byAspect]);
+  const dataVerbCounts = useMemo(() => {
+    const c: Record<Verb, number> = { CREATE: 0, DROP: 0, ALTER: 0, INSERT: 0, UPDATE: 0, DELETE: 0, OTHER: 0 };
+    for (const it of dataItems) c[verbOf(it.sql)] += 1;
+    return c;
+  }, [dataItems]);
   const tabItems = useMemo(
-    () => byAspect.filter((it) => diffFilter === 'ALL' || it.changeType === diffFilter),
-    [byAspect, diffFilter],
+    () =>
+      byAspect.filter(
+        (it) =>
+          (diffFilter === 'ALL' || it.changeType === diffFilter) &&
+          (verbSet === null || verbSet.size === 0 || verbSet.has(verbOf(it.sql))),
+      ),
+    [byAspect, diffFilter, verbSet],
   );
   const dmlCounts = useMemo(() => {
     const c: Record<DmlFilter, number> = { ALL: dataItems.length, INSERT: 0, DELETE: 0, UPDATE: 0 };
@@ -1452,8 +1518,13 @@ export default function App() {
     return c;
   }, [dataItems]);
   const dmlTabItems = useMemo(
-    () => dataItems.filter((it) => dmlFilter === 'ALL' || it.dml === dmlFilter),
-    [dataItems, dmlFilter],
+    () =>
+      dataItems.filter(
+        (it) =>
+          (dmlFilter === 'ALL' || it.dml === dmlFilter) &&
+          (verbSet === null || verbSet.size === 0 || verbSet.has(verbOf(it.sql))),
+      ),
+    [dataItems, dmlFilter, verbSet],
   );
   const needConfirm = useMemo(
     () => dataStatus.some((t) => t.status === 'confirm-needed'),
@@ -1627,10 +1698,14 @@ export default function App() {
             stmtKindFilter={stmtKindFilter}
             aspectFilter={aspectFilter}
             indexCount={indexCount}
+            verbFilter={verbFilter}
+            structVerbCounts={structVerbCounts}
+            dataVerbCounts={dataVerbCounts}
             onDiffFilter={setDiffFilter}
             onObjFilter={setObjectTypeFilter}
             onStmtKindFilter={setStmtKindFilter}
             onAspectFilter={setAspectFilter}
+            onToggleVerb={toggleVerb}
             onSelect={selectDiff}
             selectedId={selectedId}
           />

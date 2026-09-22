@@ -8,7 +8,7 @@
 // - 含 CREATE 且无 DROP 归 CREATE；
 // - 其余（ALTER / CHANGE / ADD 等）归 CHANGE。
 
-import type { ChangeType, ObjectType, StmtAspect, StmtKind } from './types';
+import type { ChangeType, ObjectType, StmtAspect, StmtKind, Verb } from './types';
 
 const RE_DROP = /\bDROP\s+(TABLE|PROCEDURE|FUNCTION|VIEW|INDEX|COLUMN|PRIMARY)\b/i;
 const RE_CREATE = /\bCREATE\b/i;
@@ -50,4 +50,45 @@ export function aspectOf(stmt: string, fallback: StmtAspect = 'table'): StmtAspe
   if (RE_ASPECT_INDEX_ADD.test(text) || RE_ASPECT_INDEX_DROP.test(text)) return 'index';
   if (RE_ASPECT_COLUMN.test(text)) return 'column';
   return fallback;
+}
+
+const RE_VERB = /^(CREATE|DROP|ALTER|INSERT|UPDATE|DELETE)\b/i;
+const RE_DELIMITER_LEAD = /^DELIMITER\b/i;
+
+/** 跳过前导空行 / 行注释（-- / #）/ 块注释，取有效首段（DELIMITER 由 verbOf 先判，不在此剥离）。 */
+function skipLeadingNoise(s: string): string {
+  let rest = s;
+  for (;;) {
+    rest = rest.trimStart();
+    if (rest.startsWith('--') || rest.startsWith('#')) {
+      const nl = rest.indexOf('\n');
+      if (nl < 0) return '';
+      rest = rest.slice(nl + 1);
+      continue;
+    }
+    if (rest.startsWith('/*')) {
+      const end = rest.indexOf('*/');
+      if (end < 0) return '';
+      rest = rest.slice(end + 2);
+      continue;
+    }
+    return rest;
+  }
+}
+
+/**
+ * R7 语句动词：首关键字匹配。
+ * - `CREATE OR REPLACE …` 首词即 CREATE → CREATE；
+ * - DELIMITER 包裹的例程体重建块（`DELIMITER ;;\nCREATE …`）→ OTHER（无动词桶）；
+ * - TRUNCATE / REPLACE 引擎不产，预留归 OTHER（无桶；CREATE 桶只收 CREATE 开头语句）；
+ * - 空串 / 纯注释 / SELECT 等杂项 → OTHER。
+ */
+export function verbOf(stmt: string): Verb {
+  const raw = (stmt ?? '').trimStart();
+  if (!raw) return 'OTHER';
+  if (RE_DELIMITER_LEAD.test(raw)) return 'OTHER';
+  const head = skipLeadingNoise(raw);
+  const m = RE_VERB.exec(head);
+  if (!m) return 'OTHER';
+  return m[1].toUpperCase() as Verb;
 }

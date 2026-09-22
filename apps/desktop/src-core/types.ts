@@ -27,6 +27,14 @@ export type StmtKind = 'DDL' | 'DML';
  */
 export type StmtAspect = 'column' | 'primary' | 'index' | 'table' | 'routine' | 'data';
 
+/**
+ * 语句动词（R7 全部行按动词搜）：单语句首关键字。
+ * CREATE / DROP / ALTER / INSERT / UPDATE / DELETE 六桶；
+ * 其余（DELIMITER 包裹的例程体重建块、TRUNCATE / REPLACE——引擎不产仅预留、
+ * 空串 / 纯注释 / SELECT 等）归 OTHER，无桶。
+ */
+export type Verb = 'CREATE' | 'DROP' | 'ALTER' | 'INSERT' | 'UPDATE' | 'DELETE' | 'OTHER';
+
 export interface SshConfig {
   enabled: boolean;
   host: string;
