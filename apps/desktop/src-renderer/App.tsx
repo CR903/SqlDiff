@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { VERB_CHIPS, useDesktopStore, type AspectFilter, type DiffFilter, type DmlFilter, type LeftTab, type ObjectTypeFilter, type SlotId, type StmtKindFilter, type VerbFilter } from './store';
-import type { DataTableStatus, DiffItem, HistoryEntry, NodeMeta, ObjectType, SecretBundle, Verb } from '../src-core/types';
+import { VERB_CHIPS, useDesktopStore, type AspectFilter, type DiffFilter, type LeftTab, type ObjectTypeFilter, type SlotId, type VerbFilter } from './store';
+import type { DataTableStatus, DiffItem, HistoryEntry, NodeMeta, ObjectType, ObjectTypeWithData, SecretBundle, StmtAspect, Verb } from '../src-core/types';
+import { sanitizeIpcError } from '../src-core/ipc-error';
 import { verbOf } from '../src-core/classify';
+import { visibleNodes } from './node-filter';
 import type { DataTableLists, NodeCreateInput } from '../src-main/preload';
 import { buildExportText, copyText, downloadSqlFile, highlightSql } from './sql';
 
@@ -17,6 +19,7 @@ const SCOPES: Array<{ value: ObjectType; label: string }> = [
 ];
 
 const LEFT_TABS: Array<{ value: LeftTab; label: string }> = [
+  { value: 'all', label: '全部' },
   { value: 'hist', label: '历史' },
   { value: 'mine', label: '我的' },
   { value: 'fav', label: '常用' },
@@ -29,46 +32,20 @@ const DIFF_TABS: Array<{ value: DiffFilter; label: string }> = [
   { value: 'CHANGE', label: 'CHANGE' },
 ];
 
-const DML_TABS: Array<{ value: DmlFilter; label: string }> = [
-  { value: 'ALL', label: '全部' },
-  { value: 'INSERT', label: 'INSERT' },
-  { value: 'DELETE', label: 'DELETE' },
-  { value: 'UPDATE', label: 'UPDATE' },
-];
-
 /** R7 动词 chips 分组展示（DDL组 + DML组；OTHER 无桶不展示）。 */
 const VERB_GROUPS: Array<{ label: string; verbs: Verb[] }> = [
   { label: 'DDL', verbs: VERB_CHIPS.slice(0, 3) },
   { label: 'DML', verbs: VERB_CHIPS.slice(3) },
 ];
 
-/** R1 一级维度：结构 DDL / 数据 DML（与 CREATE/DROP/CHANGE Tab、DML 三 Tab 正交组合）。 */
-const STMT_DIM_TABS: Array<{ value: StmtKindFilter; label: string; title: string }> = [
-  { value: 'ALL', label: '全部', title: '结构 + 数据全部展示' },
-  { value: 'DDL', label: 'DDL', title: '只看结构语句（表/视图/过程/函数）' },
-  { value: 'DML', label: 'DML', title: '只看数据行差异（INSERT/DELETE/UPDATE）' },
-];
-
-const OBJ_FILTERS: Array<{ value: ObjectTypeFilter; label: string }> = [
-  { value: 'ALL', label: '全部类型' },
+/** R4 对象 chips（多选含数据行；组内 OR、组间 AND；复制/导出与单表行同源）。 */
+const OBJ_CHIPS: Array<{ value: ObjectTypeWithData; label: string }> = [
   { value: 'table', label: '表' },
   { value: 'view', label: '视图' },
   { value: 'procedure', label: '过程' },
   { value: 'function', label: '函数' },
+  { value: 'data', label: '数据' },
 ];
-
-function visibleNodes(nodes: NodeMeta[], tab: LeftTab, keyword: string): NodeMeta[] {
-  const kw = keyword.trim().toLowerCase();
-  const list = nodes.filter((n) => {
-    if (kw && !(n.alias + n.host + n.database + (n.group ?? '')).toLowerCase().includes(kw)) return false;
-    if (tab === 'mine' && !n.star) return false;
-    // 常用 = 手动置顶（pinned）+ 按频次自动 Top（用过即入围，按 useCount 倒序）。
-    if (tab === 'fav' && !n.pinned && (n.useCount ?? 0) <= 0) return false;
-    return true;
-  });
-  if (tab === 'fav') return [...list].sort((a, b) => (b.useCount ?? 0) - (a.useCount ?? 0));
-  return list;
-}
 
 function riskClass(risk: string): string {
   if (risk === 'high') return 'risk-high';
@@ -332,7 +309,11 @@ function NodeLibrary({
           ))}
           {list.length === 0 && (
             <div className="empty">
-              {leftTab === 'mine' ? '暂无收藏 — 点击卡片上的 ☆ 收藏到我的' : '暂无常用节点 — 多对比几次或点右上角 ＋ 新增'}
+              {leftTab === 'mine'
+                ? '暂无收藏 — 点击卡片上的 ☆ 收藏到我的'
+                : leftTab === 'fav'
+                  ? '暂无常用节点 — 多对比几次或点右上角 ＋ 新增'
+                  : '暂无节点 — 点右上角 ＋ 新增'}
             </div>
           )}
         </div>
@@ -513,16 +494,15 @@ function DiffTable({
   rows,
   diffFilter,
   objectTypeFilter,
-  stmtKindFilter,
   aspectFilter,
   indexCount,
+  objCounts,
   verbFilter,
-  structVerbCounts,
-  dataVerbCounts,
+  verbCounts,
   onDiffFilter,
   onObjFilter,
-  onStmtKindFilter,
-  onAspectFilter,
+  onToggleObj,
+  onToggleAspect,
   onToggleVerb,
   onSelect,
   selectedId,
@@ -532,42 +512,33 @@ function DiffTable({
   visibleCount: number;
   rows: DiffItem[];
   diffFilter: DiffFilter;
+  /** R4 对象多选（含数据；'ALL' = 不限，组内 OR）。 */
   objectTypeFilter: ObjectTypeFilter;
-  stmtKindFilter: StmtKindFilter;
+  /** R4 切面多选；'ALL' = 不限，组内 OR。 */
   aspectFilter: AspectFilter;
-  /** 当前维度+类型视图下的索引语句数（chip 标签用，不过滤自身）。 */
+  /** 当前对象视图下的索引语句数（chip 标签用，不过滤自身）。 */
   indexCount: number;
-  /** R7 动词桶选择（'ALL' = 不限；多选 OR，组间与维度/切面/Tab 正交 AND）。 */
+  /** 对象 chip 计数基座（对象自身不过滤，保证开关可逆可见）。 */
+  objCounts: Record<ObjectTypeWithData, number>;
+  /** R7 动词桶选择（'ALL' = 不限；多选 OR，组间与对象/切面/Tab 正交 AND）。 */
   verbFilter: VerbFilter;
-  /** 动词计数基座（Tab/动词自身不过滤，保证开关可逆可见；DDL 桶按结构基座，DML 桶按数据基座）。 */
-  structVerbCounts: Record<Verb, number>;
-  dataVerbCounts: Record<Verb, number>;
+  /** 动词计数基座（Tab/动词自身不过滤，保证开关可逆可见）。 */
+  verbCounts: Record<Verb, number>;
   onDiffFilter: (f: DiffFilter) => void;
   onObjFilter: (f: ObjectTypeFilter) => void;
-  onStmtKindFilter: (f: StmtKindFilter) => void;
-  onAspectFilter: (f: AspectFilter) => void;
+  onToggleObj: (o: ObjectTypeWithData) => void;
+  onToggleAspect: (a: StmtAspect) => void;
   onToggleVerb: (v: Verb) => void;
   onSelect: (id: string | null) => void;
   selectedId: string | null;
 }) {
+  const isObjOn = (o: ObjectTypeWithData): boolean =>
+    objectTypeFilter !== 'ALL' && objectTypeFilter.includes(o);
+  const isAspectOn = (a: StmtAspect): boolean =>
+    aspectFilter !== 'ALL' && aspectFilter.includes(a);
   const isVerbOn = (v: Verb): boolean => verbFilter !== 'ALL' && verbFilter.includes(v);
-  const verbCount = (v: Verb): number =>
-    v === 'INSERT' || v === 'UPDATE' || v === 'DELETE' ? dataVerbCounts[v] : structVerbCounts[v];
   return (
     <div className="card diff-card">
-      <div className="diff-tabs">
-        {STMT_DIM_TABS.map((t) => (
-          <button
-            key={t.value}
-            className={stmtKindFilter === t.value ? 'tab-btn active' : 'tab-btn'}
-            title={t.title}
-            onClick={() => onStmtKindFilter(t.value)}
-          >
-            {t.label}
-          </button>
-        ))}
-        <span className="diff-stat">维度（DDL=结构 / DML=数据）</span>
-      </div>
       <div className="diff-tabs">
         {DIFF_TABS.map((t) => (
           <button
@@ -580,25 +551,32 @@ function DiffTable({
         ))}
         <span className="diff-stat">当前 {visibleCount} 条 / 共 {total} 条</span>
       </div>
-      <div className="obj-filters">
-        {OBJ_FILTERS.map((f) => (
+      <div className="obj-filters" title="按对象类型过滤（多选含数据行；与动词/切面/Tab/关键字正交 AND；复制=所见）">
+        <button
+          className={objectTypeFilter === 'ALL' ? 'chip active' : 'chip'}
+          onClick={() => onObjFilter('ALL')}
+        >
+          全部
+        </button>
+        {OBJ_CHIPS.map((f) => (
           <button
             key={f.value}
-            className={objectTypeFilter === f.value ? 'chip active' : 'chip'}
-            onClick={() => onObjFilter(f.value)}
+            className={isObjOn(f.value) ? 'chip active' : 'chip'}
+            title={`只看${f.label}（当前 ${objCounts[f.value]} 条）`}
+            onClick={() => onToggleObj(f.value)}
           >
-            {f.label}
+            {f.label} ({objCounts[f.value]})
           </button>
         ))}
         <button
-          className={aspectFilter === 'index' ? 'chip active' : 'chip'}
+          className={isAspectOn('index') ? 'chip active' : 'chip'}
           title="仅看索引语句（ADD/DROP INDEX|KEY；PRIMARY KEY 归主键不归此类，结构范围）"
-          onClick={() => onAspectFilter(aspectFilter === 'index' ? 'ALL' : 'index')}
+          onClick={() => onToggleAspect('index')}
         >
           INDEX ({indexCount})
         </button>
       </div>
-      <div className="obj-filters" title="按语句首动词过滤（CREATE/DROP/ALTER/INSERT/UPDATE/DELETE 多选；与维度/切面/Tab/关键字正交 AND；复制=所见）">
+      <div className="obj-filters" title="按语句首动词过滤（CREATE/DROP/ALTER/INSERT/UPDATE/DELETE 多选；与对象/切面/Tab/关键字正交 AND；复制=所见）">
         <span className="diff-stat" style={{ marginLeft: 0 }}>
           动词
         </span>
@@ -611,10 +589,10 @@ function DiffTable({
               <button
                 key={v}
                 className={isVerbOn(v) ? 'chip active' : 'chip'}
-                title={`只看 ${v} 开头语句（当前 ${verbCount(v)} 条）`}
+                title={`只看 ${v} 开头语句（当前 ${verbCounts[v]} 条）`}
                 onClick={() => onToggleVerb(v)}
               >
-                {v} ({verbCount(v)})
+                {v} ({verbCounts[v]})
               </button>
             ))}
           </span>
@@ -879,98 +857,6 @@ function DataSection({
   );
 }
 
-function DataDiffTable({
-  counts,
-  rows,
-  dmlFilter,
-  onDmlFilter,
-  onSelect,
-  selectedId,
-  aName,
-  bName,
-  onToast,
-}: {
-  counts: Record<DmlFilter, number>;
-  rows: DiffItem[];
-  dmlFilter: DmlFilter;
-  onDmlFilter: (f: DmlFilter) => void;
-  onSelect: (id: string | null) => void;
-  selectedId: string | null;
-  aName: string;
-  bName: string;
-  onToast: (msg: string) => void;
-}) {
-  const handleCopy = async (): Promise<void> => {
-    if (rows.length === 0) {
-      onToast('暂无数据 SQL 可复制');
-      return;
-    }
-    const text = buildExportText(rows, { aName, bName, at: new Date().toISOString() });
-    const ok = await copyText(text);
-    onToast(ok ? `已复制数据 ${dmlFilter}（${rows.length}条）到剪贴板` : '复制失败：无剪贴板权限');
-  };
-  const handleExport = (): void => {
-    if (rows.length === 0) {
-      onToast('暂无数据 SQL 可导出');
-      return;
-    }
-    const text = buildExportText(rows, { aName, bName, at: new Date().toISOString() });
-    downloadSqlFile(`sqldiff_data_${dmlFilter.toLowerCase()}_${Date.now()}.sql`, text);
-    onToast(`已导出数据 ${dmlFilter} .sql（含头注释，共 ${rows.length} 条）`);
-  };
-  return (
-    <div className="card diff-card">
-      <div className="diff-tabs">
-        {DML_TABS.map((t) => (
-          <button
-            key={t.value}
-            className={dmlFilter === t.value ? 'tab-btn active' : 'tab-btn'}
-            onClick={() => onDmlFilter(t.value)}
-          >
-            {t.label} ({counts[t.value]})
-          </button>
-        ))}
-        <span className="diff-stat">数据 {rows.length} 条（只读生成，未执行）</span>
-        <span className="diff-stat">
-          <button className="mini-btn" onClick={() => void handleCopy()}>
-            ⧉ 复制本类
-          </button>{' '}
-          <button className="mini-btn" onClick={handleExport}>
-            导出本类 .sql
-          </button>
-        </span>
-      </div>
-      <div className="diff-scroll">
-        <table className="diff-table">
-          <thead>
-            <tr>
-              <th>表</th>
-              <th>DML</th>
-              <th>风险</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r: DiffItem) => (
-              <tr
-                key={r.id}
-                className={selectedId === r.id ? 'diff-row selected' : 'diff-row'}
-                onClick={() => onSelect(selectedId === r.id ? null : r.id)}
-              >
-                <td className="mono">{r.objectName}</td>
-                <td>
-                  <span className={`badge b-${r.changeType.toLowerCase()}`}>{r.dml ?? r.changeType}</span>
-                </td>
-                <td className={riskClass(r.risk)}>{riskLabel(r.risk)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {rows.length === 0 && <div className="empty">该类暂无数据差异 🍃</div>}
-      </div>
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // 右栏：SQL 预览
 // ---------------------------------------------------------------------------
@@ -984,7 +870,7 @@ function SqlPreview({
   onToast,
 }: {
   tabItems: DiffItem[];
-  /** 数据 Tab 行（仅供选中单条预览，不参与“当前Tab全部”复制/导出）。 */
+  /** 选中回退（单表已含数据行，默认空；保留参数兼容旧调用）。 */
   extraItems?: DiffItem[];
   selectedId: string | null;
   aName: string;
@@ -1021,11 +907,15 @@ function SqlPreview({
 
   const handleExport = (): void => {
     if (current.length === 0) {
-      onToast('暂无 SQL 可导出');
+      onToast('暂无可导出 SQL');
       return;
     }
-    downloadSqlFile(`sqldiff_${Date.now()}.sql`, exportText);
-    onToast(`已导出 .sql（含头注释，顺序 DROP→CREATE→CHANGE，共 ${current.length} 条）`);
+    try {
+      downloadSqlFile(`sqldiff_${Date.now()}.sql`, exportText);
+      onToast(`已导出 .sql（含头注释，顺序 DROP→CREATE→CHANGE，共 ${current.length} 条）`);
+    } catch (e) {
+      onToast(`导出失败：${sanitizeIpcError(e)}`);
+    }
   };
 
   return (
@@ -1182,7 +1072,7 @@ function NodeModal({
       setTestMsg(r.ok ? `连接成功，延迟 ${r.ms}ms` : `连接失败 [${r.code ?? 'UNKNOWN'}] ${r.message ?? ''}`);
     } catch (e) {
       setTestOk(false);
-      setTestMsg(e instanceof Error ? e.message : '测试失败');
+      setTestMsg(sanitizeIpcError(e));
     } finally {
       setTesting(false);
     }
@@ -1205,7 +1095,7 @@ function NodeModal({
         onSaved(`已新增节点：${input.alias}`);
       }
     } catch (e) {
-      setErr(e instanceof Error ? e.message : '保存失败');
+      setErr(sanitizeIpcError(e));
     } finally {
       setSaving(false);
     }
@@ -1367,9 +1257,7 @@ export default function App() {
   const dataInsertBatch = useDesktopStore((s) => s.dataInsertBatch);
   const tableFilter = useDesktopStore((s) => s.tableFilter);
   const diffFilter = useDesktopStore((s) => s.diffFilter);
-  const dmlFilter = useDesktopStore((s) => s.dmlFilter);
   const objectTypeFilter = useDesktopStore((s) => s.objectTypeFilter);
-  const stmtKindFilter = useDesktopStore((s) => s.stmtKindFilter);
   const aspectFilter = useDesktopStore((s) => s.aspectFilter);
   const verbFilter = useDesktopStore((s) => s.verbFilter);
   const items = useDesktopStore((s) => s.items);
@@ -1398,10 +1286,9 @@ export default function App() {
   const refreshDataTables = useDesktopStore((s) => s.refreshDataTables);
   const setTableFilter = useDesktopStore((s) => s.setTableFilter);
   const setDiffFilter = useDesktopStore((s) => s.setDiffFilter);
-  const setDmlFilter = useDesktopStore((s) => s.setDmlFilter);
   const setObjectTypeFilter = useDesktopStore((s) => s.setObjectTypeFilter);
-  const setStmtKindFilter = useDesktopStore((s) => s.setStmtKindFilter);
-  const setAspectFilter = useDesktopStore((s) => s.setAspectFilter);
+  const toggleObjectType = useDesktopStore((s) => s.toggleObjectType);
+  const toggleAspect = useDesktopStore((s) => s.toggleAspect);
   const toggleVerb = useDesktopStore((s) => s.toggleVerb);
   const selectDiff = useDesktopStore((s) => s.selectDiff);
   const setToast = useDesktopStore((s) => s.setToast);
@@ -1447,60 +1334,75 @@ export default function App() {
   }, [runCompare]);
 
   const kw = tableFilter.trim().toLowerCase();
-  // 结构组（不含数据行，数据走独立三 Tab）。
-  const structItems = useMemo(() => items.filter((it) => it.objectType !== 'data'), [items]);
-  const dataItems = useMemo(() => items.filter((it) => it.objectType === 'data'), [items]);
-  // R1/R3 过滤链（复制/导出与 DiffTable 行同源，复制=所见）：
-  // 维度 -> 对象类型+关键字 -> 切面 -> CREATE/DROP/CHANGE Tab。
-  const byDim = useMemo(
+  // R4 单表统一过滤链（结构 + 数据同表，复制/导出与 DiffTable 行同源，复制=所见）：
+  // 关键字（仅作用于表 + 数据行，与 fetchMetadata/postFilterResult 一致，视图/例程不受影响）
+  // → 对象（多选 OR）→ 切面（多选 OR）→ CREATE/DROP/CHANGE Tab + 动词（多选 OR）；组间 AND。
+  const byKw = useMemo(
     () =>
-      structItems.filter(
-        (it) => stmtKindFilter === 'ALL' || (it.stmtKind ?? 'DDL') === stmtKindFilter,
-      ),
-    [structItems, stmtKindFilter],
+      kw
+        ? items.filter(
+            (it) =>
+              (it.objectType !== 'table' && it.objectType !== 'data') ||
+              it.objectName.toLowerCase().includes(kw) ||
+              it.sql.toLowerCase().includes(kw),
+          )
+        : items,
+    [items, kw],
+  );
+  const objSet = useMemo(
+    () => (objectTypeFilter === 'ALL' ? null : new Set<ObjectTypeWithData>(objectTypeFilter)),
+    [objectTypeFilter],
   );
   const byObj = useMemo(
     () =>
-      byDim.filter(
-        (it) =>
-          (objectTypeFilter === 'ALL' || it.objectType === objectTypeFilter) &&
-          (!kw ||
-            it.objectName.toLowerCase().includes(kw) ||
-            it.sql.toLowerCase().includes(kw)),
-      ),
-    [byDim, objectTypeFilter, kw],
+      objSet === null || objSet.size === 0 ? byKw : byKw.filter((it) => objSet.has(it.objectType)),
+    [byKw, objSet],
+  );
+  // 对象 chip 计数基座（对象自身不过滤，保证开关可逆可见）。
+  const objCounts = useMemo(() => {
+    const c: Record<ObjectTypeWithData, number> = {
+      table: 0,
+      view: 0,
+      procedure: 0,
+      function: 0,
+      data: 0,
+    };
+    for (const it of byKw) c[it.objectType] += 1;
+    return c;
+  }, [byKw]);
+  const aspSet = useMemo(
+    () => (aspectFilter === 'ALL' ? null : new Set<StmtAspect>(aspectFilter)),
+    [aspectFilter],
+  );
+  const byAspect = useMemo(
+    () =>
+      aspSet === null || aspSet.size === 0
+        ? byObj
+        : byObj.filter((it) => (it.aspects ?? []).some((a) => aspSet.has(a))),
+    [byObj, aspSet],
   );
   // INDEX chip 标签计数（切面自身不过滤，保证开关可逆可见）。
   const indexCount = useMemo(
     () => byObj.filter((it) => (it.aspects ?? []).includes('index')).length,
     [byObj],
   );
-  const byAspect = useMemo(
-    () => (aspectFilter === 'ALL' ? byObj : byObj.filter((it) => (it.aspects ?? []).includes(aspectFilter))),
-    [byObj, aspectFilter],
-  );
   const counts = useMemo(() => {
     const c: Record<DiffFilter, number> = { ALL: byAspect.length, CREATE: 0, DROP: 0, CHANGE: 0 };
     for (const it of byAspect) c[it.changeType] += 1;
     return c;
   }, [byAspect]);
-  // R7 动词桶（多选 OR；空/'ALL' = 不限）：结构 + 数据两表同受约束，与维度/切面/Tab 正交 AND。
+  // R7 动词桶（多选 OR；空/'ALL' = 不限）：单表统一约束，与对象/切面/Tab 正交 AND。
   // 计数基座取 Tab/动词过滤前的列表（同 INDEX chip 模式，保证开关可逆可见）；
-  // Tab 计数（counts/dmlCounts）亦不扣减动词，对称可逆。
+  // Tab 计数（counts）亦不扣减动词，对称可逆。
   const verbSet = useMemo(
     () => (verbFilter === 'ALL' ? null : new Set<Verb>(verbFilter)),
     [verbFilter],
   );
-  const structVerbCounts = useMemo(() => {
+  const verbCounts = useMemo(() => {
     const c: Record<Verb, number> = { CREATE: 0, DROP: 0, ALTER: 0, INSERT: 0, UPDATE: 0, DELETE: 0, OTHER: 0 };
     for (const it of byAspect) c[verbOf(it.sql)] += 1;
     return c;
   }, [byAspect]);
-  const dataVerbCounts = useMemo(() => {
-    const c: Record<Verb, number> = { CREATE: 0, DROP: 0, ALTER: 0, INSERT: 0, UPDATE: 0, DELETE: 0, OTHER: 0 };
-    for (const it of dataItems) c[verbOf(it.sql)] += 1;
-    return c;
-  }, [dataItems]);
   const tabItems = useMemo(
     () =>
       byAspect.filter(
@@ -1510,22 +1412,8 @@ export default function App() {
       ),
     [byAspect, diffFilter, verbSet],
   );
-  const dmlCounts = useMemo(() => {
-    const c: Record<DmlFilter, number> = { ALL: dataItems.length, INSERT: 0, DELETE: 0, UPDATE: 0 };
-    for (const it of dataItems) {
-      if (it.dml) c[it.dml] += 1;
-    }
-    return c;
-  }, [dataItems]);
-  const dmlTabItems = useMemo(
-    () =>
-      dataItems.filter(
-        (it) =>
-          (dmlFilter === 'ALL' || it.dml === dmlFilter) &&
-          (verbSet === null || verbSet.size === 0 || verbSet.has(verbOf(it.sql))),
-      ),
-    [dataItems, dmlFilter, verbSet],
-  );
+  // DML 空提示条用（数据行已并入主表，此处仅判空指引勾选「数据」）。
+  const dataItems = useMemo(() => items.filter((it) => it.objectType === 'data'), [items]);
   const needConfirm = useMemo(
     () => dataStatus.some((t) => t.status === 'confirm-needed'),
     [dataStatus],
@@ -1563,7 +1451,7 @@ export default function App() {
           setToast(`连接失败 [${r.code ?? 'UNKNOWN'}]：${r.message ?? '未知错误'}`);
         }
       })
-      .catch((e: unknown) => setToast(e instanceof Error ? e.message : '测试失败'))
+      .catch((e: unknown) => setToast(sanitizeIpcError(e)))
       .finally(() => setTestingId(null));
   };
 
@@ -1572,7 +1460,7 @@ export default function App() {
     if (!window.confirm(`删除节点 ${n?.alias ?? id}？密钥一并删除，该操作不可撤销。`)) return;
     void removeNode(id)
       .then(() => setToast(`已删除节点：${n?.alias ?? id}`))
-      .catch((e: unknown) => setToast(e instanceof Error ? e.message : '删除失败'));
+      .catch((e: unknown) => setToast(sanitizeIpcError(e)));
   };
 
   const handleExport = (): void => {
@@ -1581,7 +1469,7 @@ export default function App() {
         downloadSqlFile(`sqldiff_nodes_${Date.now()}.json`, JSON.stringify(doc, null, 2));
         setToast(`已导出 ${doc.nodes.length} 个节点（密码已加密，无明文）`);
       })
-      .catch((e: unknown) => setToast(e instanceof Error ? e.message : '导出失败'));
+      .catch((e: unknown) => setToast(sanitizeIpcError(e)));
   };
 
   const handleImportFile = (file: File): void => {
@@ -1589,7 +1477,7 @@ export default function App() {
       .text()
       .then((text) => importDoc(JSON.parse(text) as Parameters<typeof importDoc>[0]))
       .then((count) => setToast(`已导入 ${count} 个节点，密码免重输`))
-      .catch((e: unknown) => setToast(`导入失败：${e instanceof Error ? e.message : '文件非法'}`));
+      .catch((e: unknown) => setToast(`导入失败：${sanitizeIpcError(e)}`));
   };
 
   const handleImportLegacy = (): void => {
@@ -1597,7 +1485,7 @@ export default function App() {
     if (!s || !s.trim()) return;
     void importLegacy(s.trim())
       .then((m) => setToast(`已导入老连接串：${m.alias}`))
-      .catch((e: unknown) => setToast(e instanceof Error ? e.message : '解析失败'));
+      .catch((e: unknown) => setToast(sanitizeIpcError(e)));
   };
 
   return (
@@ -1690,48 +1578,33 @@ export default function App() {
           )}
           <DiffTable
             counts={counts}
-            total={structItems.length}
+            total={items.length}
             visibleCount={tabItems.length}
             rows={tabItems}
             diffFilter={diffFilter}
             objectTypeFilter={objectTypeFilter}
-            stmtKindFilter={stmtKindFilter}
             aspectFilter={aspectFilter}
             indexCount={indexCount}
+            objCounts={objCounts}
             verbFilter={verbFilter}
-            structVerbCounts={structVerbCounts}
-            dataVerbCounts={dataVerbCounts}
+            verbCounts={verbCounts}
             onDiffFilter={setDiffFilter}
             onObjFilter={setObjectTypeFilter}
-            onStmtKindFilter={setStmtKindFilter}
-            onAspectFilter={setAspectFilter}
+            onToggleObj={toggleObjectType}
+            onToggleAspect={toggleAspect}
             onToggleVerb={toggleVerb}
             onSelect={selectDiff}
             selectedId={selectedId}
           />
-          {stmtKindFilter !== 'DDL' && (includeData || dataItems.length > 0 || dataStatus.length > 0) && (
-            <DataDiffTable
-              counts={dmlCounts}
-              rows={dmlTabItems}
-              dmlFilter={dmlFilter}
-              onDmlFilter={setDmlFilter}
-              onSelect={selectDiff}
-              selectedId={selectedId}
-              aName={aliasOf(slotA)}
-              bName={aliasOf(slotB)}
-              onToast={setToast}
-            />
-          )}
-          {stmtKindFilter === 'DML' && !includeData && dataItems.length === 0 && dataStatus.length === 0 && (
+          {dataItems.length === 0 && dataStatus.length === 0 && (
             <div className="card">
-              <div className="empty">DML 为数据行差异 — 勾选「数据」并对比后在此查看 INSERT / DELETE / UPDATE 🍃</div>
+              <div className="empty">暂无数据行 — 勾选「数据」范围并对比后，INSERT / DELETE / UPDATE 行与结构同表展示（可用“数据”对象 chip + 动词 DML 组定位）🍃</div>
             </div>
           )}
         </section>
 
         <SqlPreview
-          tabItems={stmtKindFilter === 'DML' ? dmlTabItems : tabItems}
-          extraItems={stmtKindFilter === 'DML' ? [] : dataItems}
+          tabItems={tabItems}
           selectedId={selectedId}
           aName={aliasOf(slotA)}
           bName={aliasOf(slotB)}

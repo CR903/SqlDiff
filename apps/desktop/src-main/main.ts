@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { app, BrowserWindow, clipboard, ipcMain, safeStorage } from 'electron';
+import { app, BrowserWindow, clipboard, ipcMain, safeStorage, session } from 'electron';
 import type { Pool } from 'mysql2/promise';
 import type {
   ConnTestResult,
@@ -24,6 +24,7 @@ import {
 } from './store-json';
 import { Vault, parseLegacyConnectionString, type SafeStorageLike } from './vault';
 import { closeAll, createMysqlPool, testConnection } from './connection';
+import { registerWillDownload } from './download';
 import { listTables } from './metadata';
 
 // M2：vault（safeStorage + OS 钥匙串 / AES-GCM 回退）+ nodes.json / history.json 接线。
@@ -381,6 +382,8 @@ function createWindow(): void {
 
 void app.whenReady().then(() => {
   registerIpc();
+  // P0 导出必落盘：静默落盘到系统 Downloads（保持无弹窗体验，此前无 handler 默认行为不落盘）。
+  registerWillDownload(session.defaultSession, () => app.getPath('downloads'));
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

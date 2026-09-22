@@ -56,6 +56,8 @@ import path from 'node:path'; // 或 import * as path，二选一全仓统一
 - stats 对称：`recountStats` 与 `compare-run` 数据合并分支必须计数字段一致（新增 stats 字段两处同步加，否则过滤与合并口径分裂）。
 - DDL/DML 维度：`objectType==='data'` 即 DML，其余 DDL；维度与 CREATE/DROP/CHANGE、DML 三 Tab 正交 AND 过滤。
 - 动词桶取首关键字（`verbOf`）：`CREATE OR REPLACE`→CREATE，前导注释/DELIMITER 块→OTHER；动词与 changeType 正交（`DROP+ADD PRIMARY KEY` 合写 changeType=DROP 但 verb=ALTER）；过滤链顺序固定 维度→对象→动词→切面→关键字，缺省/空数组视为 ALL 向后兼容。
+- 主进程必注册 `will-download` 静默落盘（`setSavePath(downloads/filename)`，空名回落），否则 Blob 锚点下载挂起无文件；成功 toast 为乐观口径（无回执通道）。
+- IPC 错误展示前必过 `sanitizeIpcError`（剥 `Error invoking remote method` 前缀）；过滤状态全数组化（对象/切面/动词），组内 OR 组间 AND，空/满视为 ALL。
 
 ---
 

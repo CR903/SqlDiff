@@ -3,6 +3,9 @@
 
 export type ObjectType = 'table' | 'view' | 'procedure' | 'function';
 
+/** 对象过滤口径（含数据行 'data'，与结构四类型并列，UI 对象 chips 多选用）。 */
+export type ObjectTypeWithData = ObjectType | 'data';
+
 /** 数据对比范围标记（非结构对象类型， CompareRequest.scopes 可携带，结构归一时剥离）。 */
 export type DataScope = 'data';
 

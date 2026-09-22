@@ -11,8 +11,8 @@ import type {
   DataScope,
   DiffItem,
   ObjectType,
+  ObjectTypeWithData,
   StmtAspect,
-  StmtKind,
   Verb,
 } from './types';
 
@@ -60,26 +60,27 @@ export function recountStats(items: DiffItem[]): CompareResult['stats'] {
   return stats;
 }
 
-/** R1/R3 维度过滤参数（与既有 CREATE/DROP/CHANGE Tab、DML 三 Tab 正交组合）。 */
-export type StmtKindFilter = 'ALL' | StmtKind;
-export type AspectFilter = 'ALL' | StmtAspect;
+/** R4 对象过滤（多选含数据行；'ALL'/空数组/选满 = 不限，组内 OR）。 */
+export type ObjectTypeFilter = 'ALL' | ObjectTypeWithData[];
+/** R4 切面过滤（多选；'ALL'/空数组/选满 = 不限，组内 OR）。 */
+export type AspectFilter = 'ALL' | StmtAspect[];
 /** R7 动词桶过滤：'ALL' 或动词数组（空数组视为 ALL，保证增量兼容）。 */
 export type VerbFilter = 'ALL' | Verb[];
 
 export interface PostFilterOptions {
-  /** 一级维度：全部 / DDL（结构）/ DML（数据）。 */
-  stmtKind?: StmtKindFilter;
-  /** 语句切面（INDEX chip 等）：仅命中该切面的条目保留。 */
-  aspect?: AspectFilter;
+  /** 对象集合（含 'data'；数据行同走集合判定，不再特殊 bypass）。 */
+  objectTypes?: ObjectTypeFilter;
+  /** 语句切面集合（命中任一即保留）。 */
+  aspects?: AspectFilter;
   /** R7 动词桶（CREATE/DROP/ALTER/INSERT/UPDATE/DELETE）：命中任一即保留，与其他条件正交 AND。 */
   verbs?: VerbFilter;
 }
 
 /**
- * 后过滤（展示一致性兜底）：维度 → 对象（scopes）→ 动词 → 切面 → 表名子串（大小写不敏感）。
- * tableFilter 只作用于 table 类型（与 fetchMetadata 一致），视图/例程不受影响；
+ * 后过滤（展示一致性兜底）：对象（scopes + 对象集合）→ 动词 → 切面 → 表名子串（大小写不敏感）。
+ * 组内 OR、组间 AND；tableFilter 只作用于 table 类型（与 fetchMetadata 一致），视图/例程不受影响；
  * 数据行（objectType:'data'）不受结构 scopes 裁剪（数据开关由 hasDataScope 控制），
- * 仅在有 tableFilter 时按表名/SQL 子串过滤，保证“复制=所见”不丢数。
+ * 但同走对象集合判定，仅在有 tableFilter 时按表名/SQL 子串过滤，保证“复制=所见”不丢数。
  */
 export function postFilterResult(
   items: DiffItem[],
@@ -89,20 +90,23 @@ export function postFilterResult(
 ): CompareResult {
   const on = new Set<string>(scopes);
   const kw = (tableFilter ?? '').trim().toLowerCase();
-  const stmtKind: StmtKindFilter = opts.stmtKind ?? 'ALL';
-  const aspect: AspectFilter = opts.aspect ?? 'ALL';
+  const objSet =
+    opts.objectTypes === undefined || opts.objectTypes === 'ALL'
+      ? null
+      : new Set<string>(opts.objectTypes);
+  const aspSet =
+    opts.aspects === undefined || opts.aspects === 'ALL' ? null : new Set<string>(opts.aspects);
   const verbs = opts.verbs ?? 'ALL';
   const verbSet = verbs === 'ALL' ? null : new Set<Verb>(verbs);
   const filtered = items.filter((it) => {
-    // 维度（缺字段的老对象按 objectType 兜底，保证增量兼容）。
-    const kind: StmtKind = it.stmtKind ?? (it.objectType === 'data' ? 'DML' : 'DDL');
-    if (stmtKind !== 'ALL' && kind !== stmtKind) return false;
-    // 对象：数据行不受结构 scopes 裁剪。
+    // 对象：数据行不受结构 scopes 裁剪，但同走对象集合判定。
     if (it.objectType !== 'data' && !on.has(it.objectType)) return false;
+    if (objSet !== null && objSet.size > 0 && !objSet.has(it.objectType)) return false;
     // R7 动词：首关键字须命中已选桶（空数组视为 ALL）。
     if (verbSet !== null && verbSet.size > 0 && !verbSet.has(verbOf(it.sql))) return false;
-    // 切面。
-    if (aspect !== 'ALL' && !(it.aspects ?? []).includes(aspect)) return false;
+    // 切面（多选 OR，空数组视为 ALL）。
+    if (aspSet !== null && aspSet.size > 0 && !(it.aspects ?? []).some((a) => aspSet.has(a)))
+      return false;
     // 关键字：仅作用于表 + 数据行。
     if (kw && (it.objectType === 'table' || it.objectType === 'data')) {
       if (!(it.objectName.toLowerCase().includes(kw) || it.sql.toLowerCase().includes(kw))) return false;

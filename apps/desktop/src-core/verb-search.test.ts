@@ -143,12 +143,15 @@ describe('verbs 过滤：ALTER 桶 / CREATE 桶', () => {
     expect(postFilterResult(mixed().items, ['table'], '').items).toHaveLength(5);
     expect(postFilterResult(mixed().items, ['table'], '', { verbs: 'ALL' }).items).toHaveLength(5);
     expect(postFilterResult(mixed().items, ['table'], '', { verbs: [] }).items).toHaveLength(5);
+    expect(
+      postFilterResult(mixed().items, ['table'], '', { objectTypes: [], aspects: [] }).items,
+    ).toHaveLength(5);
   });
 });
 
-describe('verbs × 维度 / 切面 / 关键字正交组合', () => {
-  it('DDL × INSERT：空结果（结构无数据动词）+ 空 stats', () => {
-    const r = postFilterResult(mixed().items, ['table'], '', { stmtKind: 'DDL', verbs: ['INSERT'] });
+describe('verbs × 对象 / 切面 / 关键字正交组合', () => {
+  it('结构对象 × INSERT：空结果（结构无数据动词）+ 空 stats', () => {
+    const r = postFilterResult(mixed().items, ['table'], '', { objectTypes: ['table'], verbs: ['INSERT'] });
     expect(r.items).toEqual([]);
     expect(r.stats.ALL).toBe(0);
   });
@@ -160,21 +163,57 @@ describe('verbs × 维度 / 切面 / 关键字正交组合', () => {
     expect(
       postFilterResult(DATA_ITEMS, [...scopes], '', { verbs: ['UPDATE', 'DELETE'] }).items.map((i) => i.id),
     ).toEqual(['data:users:users:DELETE:0', 'data:users:users:UPDATE:0']);
-    const dml = postFilterResult(DATA_ITEMS, [...scopes], '', { stmtKind: 'DML', verbs: ['INSERT'] });
+    const dml = postFilterResult(DATA_ITEMS, [...scopes], '', { objectTypes: ['data'], verbs: ['INSERT'] });
     expect(dml.items.map((i) => i.id)).toEqual(['data:users:users:INSERT:0']);
     expect(dml.stats.DML.INSERT).toBe(1);
   });
 
   it('INDEX 切面 × ALTER：只剩索引 ALTER；× CREATE：空', () => {
-    const only = postFilterResult(mixed().items, ['table'], '', { aspect: 'index', verbs: ['ALTER'] });
+    const only = postFilterResult(mixed().items, ['table'], '', { aspects: ['index'], verbs: ['ALTER'] });
     expect(only.items.map((i) => i.id)).toEqual(['table:users:s2']);
     expect(only.stats).toMatchObject({ ALL: 1, INDEX: 1 });
-    expect(postFilterResult(mixed().items, ['table'], '', { aspect: 'index', verbs: ['CREATE'] }).items).toEqual([]);
+    expect(postFilterResult(mixed().items, ['table'], '', { aspects: ['index'], verbs: ['CREATE'] }).items).toEqual([]);
   });
 
   it('关键字 × 动词：users × ALTER = 三 ALTER（fresh/ghost 被名滤掉）', () => {
     const r = postFilterResult(mixed().items, ['table'], 'users', { verbs: ['ALTER'] });
     expect(r.items.map((i) => i.id).sort()).toEqual(['table:users:s0', 'table:users:s1', 'table:users:s2']);
+  });
+});
+
+describe('R4 对象多选 × 动词 × Tab 组合复制=所见', () => {
+  const all = () => [...mixed().items, ...DATA_ITEMS];
+
+  it('对象单选 data 只见三数据行；table+data 并集 8 条', () => {
+    expect(postFilterResult(all(), ['table'], '', { objectTypes: ['data'] }).items).toHaveLength(3);
+    expect(
+      postFilterResult(all(), ['table'], '', { objectTypes: ['table', 'data'] }).items,
+    ).toHaveLength(8);
+  });
+
+  it('切面多选 column+index = 列+索引两类（组内 OR）', () => {
+    const r = postFilterResult(mixed().items, ['table'], '', { aspects: ['column', 'index'] });
+    expect(r.items.map((i) => i.id).sort()).toEqual(['table:users:s0', 'table:users:s2']);
+  });
+
+  it('CREATE Tab × CREATE 动词：只剩 fresh 建表，导出逐行一致', () => {
+    const byVerb = postFilterResult(
+      all(),
+      ['table'],
+      '',
+      { objectTypes: ['table', 'view', 'procedure', 'function', 'data'], verbs: ['CREATE'] },
+    );
+    // Tab 语义（changeType）与动词桶正交 AND：CREATE 动词桶内再按 CREATE Tab 裁剪。
+    const tabRows = byVerb.items.filter((it) => it.changeType === 'CREATE');
+    expect(tabRows.map((i) => i.id)).toEqual(['table:fresh:s0']);
+    const text = toExportSql(tabRows, { aName: 'A', bName: 'B', at: '2026-09-22T00:00:00.000Z' });
+    const body = text.split('\n').filter((l) => l.trim() !== '' && !l.startsWith('--'));
+    // CREATE TABLE 为多行语句：body 多行但同属单一条目，拼接后逐行一致。
+    expect(body.join('\n')).toContain('CREATE TABLE `fresh`');
+    expect(body.join('\n')).toContain('PRIMARY KEY');
+    expect(text).not.toContain('INSERT INTO');
+    expect(text).not.toContain('DROP TABLE');
+    expect(text).toContain('-- 条数: 1');
   });
 });
 

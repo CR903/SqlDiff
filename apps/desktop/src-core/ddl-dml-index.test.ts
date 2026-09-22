@@ -128,7 +128,7 @@ describe('compareRun 一表多语句拆分（加列+加索引 -> 两条）', () 
   });
 });
 
-describe('postFilterResult 维度+切面正交组合', () => {
+describe('postFilterResult 对象+切面正交组合（R4：对象多选含 data，切面多选；组内 OR、组间 AND）', () => {
   const items: DiffItem[] = [
     {
       id: 'table:users:s0', objectType: 'table', objectName: 'users', changeType: 'CHANGE',
@@ -144,30 +144,55 @@ describe('postFilterResult 维度+切面正交组合', () => {
     },
   ];
 
-  it('切 DDL 只见结构，切 DML 只见数据', () => {
-    expect(postFilterResult(items, ['table'], '', { stmtKind: 'DDL' }).items.map((i) => i.id))
-      .toEqual(['table:users:s0', 'table:users:s1']);
-    const dml = postFilterResult(items, ['table'], '', { stmtKind: 'DML' });
-    expect(dml.items.map((i) => i.id)).toEqual(['data:users:users:INSERT:0']);
-    expect(dml.stats.ALL).toBe(1);
+  it('对象单选 data 只见数据行；结构全选只见结构', () => {
+    expect(postFilterResult(items, ['table'], '', { objectTypes: ['data'] }).items.map((i) => i.id))
+      .toEqual(['data:users:users:INSERT:0']);
+    const struct = postFilterResult(
+      items,
+      ['table'],
+      '',
+      { objectTypes: ['table', 'view', 'procedure', 'function'] },
+    );
+    expect(struct.items.map((i) => i.id)).toEqual(['table:users:s0', 'table:users:s1']);
+  });
+
+  it('对象多选 table+data = 全部三条（组内 OR）', () => {
+    const r = postFilterResult(items, ['table'], '', { objectTypes: ['table', 'data'] });
+    expect(r.items).toHaveLength(3);
+    expect(r.stats.ALL).toBe(3);
   });
 
   it('INDEX 切面只见索引语句，stats.INDEX=所见条数', () => {
-    const r = postFilterResult(items, ['table'], '', { aspect: 'index' });
+    const r = postFilterResult(items, ['table'], '', { aspects: ['index'] });
     expect(r.items.map((i) => i.id)).toEqual(['table:users:s1']);
     expect(r.stats).toMatchObject({ ALL: 1, INDEX: 1 });
   });
 
-  it('DDL × INDEX 组合：只剩索引结构语句', () => {
-    const r = postFilterResult(items, ['table'], '', { stmtKind: 'DDL', aspect: 'index' });
+  it('切面多选 column+index = 列+索引两条（组内 OR）', () => {
+    const r = postFilterResult(items, ['table'], '', { aspects: ['column', 'index'] });
+    expect(r.items.map((i) => i.id)).toEqual(['table:users:s0', 'table:users:s1']);
+  });
+
+  it('table × INDEX 组合：只剩索引结构语句', () => {
+    const r = postFilterResult(items, ['table'], '', { objectTypes: ['table'], aspects: ['index'] });
     expect(r.items.map((i) => i.id)).toEqual(['table:users:s1']);
   });
 
-  it('DML × INDEX 组合：空结果（数据行非索引语句）+ 空 stats', () => {
-    const r = postFilterResult(items, ['table'], '', { stmtKind: 'DML', aspect: 'index' });
+  it('data × INDEX 组合：空结果（数据行非索引语句）+ 空 stats', () => {
+    const r = postFilterResult(items, ['table'], '', { objectTypes: ['data'], aspects: ['index'] });
     expect(r.items).toEqual([]);
     expect(r.stats.ALL).toBe(0);
     expect(r.stats.INDEX).toBe(0);
+  });
+
+  it('缺省/ALL/空数组向后兼容（不过滤）', () => {
+    expect(postFilterResult(items, ['table'], '').items).toHaveLength(3);
+    expect(
+      postFilterResult(items, ['table'], '', { objectTypes: 'ALL', aspects: 'ALL' }).items,
+    ).toHaveLength(3);
+    expect(
+      postFilterResult(items, ['table'], '', { objectTypes: [], aspects: [] }).items,
+    ).toHaveLength(3);
   });
 });
 
@@ -177,7 +202,7 @@ describe('复制=所见：过滤后导出文本与列表逐行一致', () => {
       meta({ tables: { users: T_WITH_COL_AND_IDX } }),
       meta({ tables: { users: T_BASE } }),
     );
-    const filtered = postFilterResult(base.items, ['table'], '', { aspect: 'index' });
+    const filtered = postFilterResult(base.items, ['table'], '', { aspects: ['index'] });
     expect(filtered.items).toHaveLength(1);
     const text = toExportSql(filtered.items, { aName: 'A', bName: 'B', at: '2026-09-22T00:00:00.000Z' });
     // 头注释行以 -- 开头；内容行必须且仅为索引语句。

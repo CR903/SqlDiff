@@ -4,16 +4,16 @@ import type { ChangeType,
   DataTablePair,
   DataTableStatus,
   DiffItem,
-  DmlType,
   ExportJSON,
   HistoryEntry,
   NodeMeta,
   ObjectType,
+  ObjectTypeWithData,
   SecretBundle,
   StmtAspect,
-  StmtKind,
   Verb,
 } from '../src-core/types';
+import { sanitizeIpcError } from '../src-core/ipc-error';
 import {
   DEFAULT_BATCH_ROWS,
   DEFAULT_INSERT_BATCH,
@@ -31,19 +31,20 @@ import {
 import type { DataTableLists, NodeCreateInput, SqlDiffApi } from '../src-main/preload';
 import { runDemoCompare } from './demo';
 
-export type LeftTab = 'hist' | 'mine' | 'fav';
+export type LeftTab = 'all' | 'hist' | 'mine' | 'fav';
 export type DiffFilter = 'ALL' | ChangeType;
-export type DmlFilter = 'ALL' | DmlType;
 export type SlotId = 'A' | 'B';
-export type ObjectTypeFilter = ObjectType | 'ALL';
-/** R1 一级维度：全部 / DDL（结构）/ DML（数据），与 CREATE/DROP/CHANGE Tab、DML 三 Tab 正交。 */
-export type StmtKindFilter = 'ALL' | StmtKind;
-/** R3 语句切面过滤（INDEX chip 等），只作用于结构列表。 */
-export type AspectFilter = 'ALL' | StmtAspect;
-/** R7 动词桶过滤（CREATE/DROP/ALTER/INSERT/UPDATE/DELETE 多选；'ALL' = 不限），与维度/切面/Tab/关键字正交 AND。 */
+/** R4 对象多选（含数据行 'data'；'ALL'/空数组/选满 = 不限，组内 OR、组间 AND）。 */
+export type ObjectTypeFilter = 'ALL' | ObjectTypeWithData[];
+/** R4 切面多选（INDEX chip 等；'ALL'/空数组/选满 = 不限，组内 OR）。 */
+export type AspectFilter = 'ALL' | StmtAspect[];
+/** R7 动词桶过滤（CREATE/DROP/ALTER/INSERT/UPDATE/DELETE 多选；'ALL' = 不限），与对象/切面/Tab/关键字正交 AND。 */
 export type VerbFilter = 'ALL' | Verb[];
 /** 动词 chips 行展示的六桶（OTHER 无桶，不可点选）。 */
 export const VERB_CHIPS: Verb[] = ['CREATE', 'DROP', 'ALTER', 'INSERT', 'UPDATE', 'DELETE'];
+/** 对象 chips（含数据；回落 ALL 判定用）与切面全集（回落 ALL 判定用）。 */
+export const OBJECT_CHIPS: ObjectTypeWithData[] = ['table', 'view', 'procedure', 'function', 'data'];
+export const ASPECT_ALL: StmtAspect[] = ['column', 'primary', 'index', 'table', 'routine', 'data'];
 
 const LAST_COMBO_KEY = 'sqldiff.lastCombo';
 
@@ -157,15 +158,12 @@ interface DesktopState {
   dataBatchRows: number;
   dataThreshold: number;
   dataInsertBatch: number;
-  /** 差异 focus：当前 Tab + 对象类型二级过滤 + 选中行 */
+  /** 差异 focus：当前 Tab + 对象/切面多选过滤 + 选中行 */
   diffFilter: DiffFilter;
-  /** 数据三 Tab 当前项 */
-  dmlFilter: DmlFilter;
   objectTypeFilter: ObjectTypeFilter;
-  /** R1 一级维度（DDL/DML）+ R3 切面（INDEX chip），跨对比保留（派生过滤自动生效）。 */
-  stmtKindFilter: StmtKindFilter;
+  /** R4 切面多选（INDEX chip 等），跨对比保留（派生过滤自动生效）。 */
   aspectFilter: AspectFilter;
-  /** R7 动词桶（多选 chips，空/'ALL' = 不限；与维度/切面/Tab 正交 AND，结构+数据两表同受约束）。 */
+  /** R7 动词桶（多选 chips，空/'ALL' = 不限；与对象/切面/Tab 正交 AND，单表统一约束）。 */
   verbFilter: VerbFilter;
   items: DiffItem[];
   selectedId: string | null;
@@ -186,11 +184,13 @@ interface DesktopState {
   toggleScope: (s: ObjectType) => void;
   setTableFilter: (v: string) => void;
   setDiffFilter: (f: DiffFilter) => void;
-  setDmlFilter: (f: DmlFilter) => void;
   setObjectTypeFilter: (f: ObjectTypeFilter) => void;
-  setStmtKindFilter: (f: StmtKindFilter) => void;
   setAspectFilter: (f: AspectFilter) => void;
   setVerbFilter: (f: VerbFilter) => void;
+  /** 对象 chip 开关：点选增删单个对象（含数据）；清空或选满五类时回落 'ALL'。 */
+  toggleObjectType: (o: ObjectTypeWithData) => void;
+  /** 切面 chip 开关：点选增删单个切面；清空或选满全集时回落 'ALL'。 */
+  toggleAspect: (a: StmtAspect) => void;
   /** 动词 chip 开关：点选增删单个动词；清空或选满六桶时回落 'ALL'。 */
   toggleVerb: (v: Verb) => void;
   toggleIncludeData: () => void;
@@ -226,7 +226,7 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
   nodes: seedNodes,
   nodesLoading: false,
   history: [],
-  leftTab: 'hist',
+  leftTab: 'all',
   nodeKeyword: '',
   slotA: null,
   slotB: null,
@@ -242,9 +242,7 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
   dataThreshold: DEFAULT_ROW_THRESHOLD,
   dataInsertBatch: DEFAULT_INSERT_BATCH,
   diffFilter: 'ALL',
-  dmlFilter: 'ALL',
   objectTypeFilter: 'ALL',
-  stmtKindFilter: 'ALL',
   aspectFilter: 'ALL',
   verbFilter: 'ALL',
   items: [],
@@ -291,11 +289,27 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
     })),
   setTableFilter: (v) => set({ tableFilter: v }),
   setDiffFilter: (f) => set({ diffFilter: f, selectedId: null }),
-  setDmlFilter: (f) => set({ dmlFilter: f, selectedId: null }),
   setObjectTypeFilter: (f) => set({ objectTypeFilter: f, selectedId: null }),
-  setStmtKindFilter: (f) => set({ stmtKindFilter: f, selectedId: null }),
   setAspectFilter: (f) => set({ aspectFilter: f, selectedId: null }),
   setVerbFilter: (f) => set({ verbFilter: f, selectedId: null }),
+  toggleObjectType: (o) =>
+    set((s) => {
+      const cur = s.objectTypeFilter === 'ALL' ? [] : s.objectTypeFilter;
+      const next = cur.includes(o) ? cur.filter((x) => x !== o) : [...cur, o];
+      // 清空（不限）或选满五类（= 不限）都回落 'ALL'，保证开关可逆可见。
+      const objectTypeFilter: ObjectTypeFilter =
+        next.length === 0 || next.length >= OBJECT_CHIPS.length ? 'ALL' : next;
+      return { objectTypeFilter, selectedId: null };
+    }),
+  toggleAspect: (a) =>
+    set((s) => {
+      const cur = s.aspectFilter === 'ALL' ? [] : s.aspectFilter;
+      const next = cur.includes(a) ? cur.filter((x) => x !== a) : [...cur, a];
+      // 清空（不限）或选满全集（= 不限）都回落 'ALL'，保证开关可逆可见。
+      const aspectFilter: AspectFilter =
+        next.length === 0 || next.length >= ASPECT_ALL.length ? 'ALL' : next;
+      return { aspectFilter, selectedId: null };
+    }),
   toggleVerb: (v) =>
     set((s) => {
       const cur = s.verbFilter === 'ALL' ? [] : s.verbFilter;
@@ -365,7 +379,8 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
         toast: `已载入表清单：A ${lists.a.length} / B ${lists.b.length}，同名配对 ${auto.length} 对`,
       });
     } catch (err) {
-      set({ toast: err instanceof Error ? err.message : '载入表清单失败' });
+      // P1a：IPC 错误剥前缀展示（conn 测试等同规则）。
+      set({ toast: sanitizeIpcError(err) });
     } finally {
       set({ dataListsLoading: false });
     }
@@ -550,7 +565,6 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
           dataStatus: result.dataTables ?? [],
           selectedId: null,
           diffFilter: 'ALL',
-          dmlFilter: 'ALL',
           verbFilter: 'ALL',
           confirmDataThreshold: false,
           lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · ${scopes.join('/')}${includeData ? '/data' : ''} · ${new Date().toLocaleTimeString()} · ${result.stats.ALL} 条差异${dataNote}`,
@@ -580,16 +594,16 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
       }
     } catch (err) {
       // 无后端 / 种子节点不在 vault / 连接失败时：本地示例降级，保证三栏可交互演示。
+      // P1a：对比兜底 reason/toast 只展示消毒后的中文 message（无 `Error invoking` 前缀）。
       const demo = runDemoCompare(scopes, tableFilter);
-      const isNoIpc = err instanceof Error && err.message === 'no-ipc';
-      const reason =
-        err instanceof Error && err.message !== 'no-ipc' ? `（${err.message}）` : '';
+      const clean = sanitizeIpcError(err);
+      const isNoIpc = clean === 'no-ipc';
+      const reason = !isNoIpc && clean ? `（${clean}）` : '';
       set({
         items: demo.items,
         dataStatus: [],
         selectedId: null,
         diffFilter: 'ALL',
-        dmlFilter: 'ALL',
         verbFilter: 'ALL',
         confirmDataThreshold: false,
         lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · 本地示例数据${reason}`,
