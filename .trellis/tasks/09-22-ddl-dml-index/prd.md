@@ -20,12 +20,14 @@
 - R4 统计：`recountStats` 按拆分后条目重算；stats 新增 `INDEX` 计数（index-aspect 条数）；`toExportSql` 头注释 `[DDL:CREATE]` 之类保持 `[changeType]` 不变，条数=所见。
 - R5 复制=所见：任意过滤组合下复制/导出内容与列表完全一致；空结果给空状态。
 - R6 回归：既有单测按新口径更新（条目数变多属预期），`mysqldiff/` 零改动。
+- R7 全部行按动词搜：`verbOf(sql)` 取首关键字（CREATE/DROP/ALTER/TRUNCATE/INSERT/UPDATE/DELETE/REPLACE→CREATE/OTHER），UI 在全部视图加动词 chips（DDL组 CREATE/DROP/ALTER＋DML组 INSERT/UPDATE/DELETE），与维度/aspect/Tab 正交 AND；TRUNCATE 引擎不产，无桶；INDEX 归 DDL（2026-09-22用户确认，Q3）。
 
 ## Acceptance Criteria
 
 - [ ] 同一表“加列+加索引”变出两条：列条目 aspect=column，索引条目 aspect=index。
 - [ ] 切 DDL 只见结构、切 DML 只见数据；INDEX chip 只见索引语句。
 - [ ] 各组合复制内容与所见逐行一致；stats 计数=列表条数。
+- [ ] 动词搜：CREATE 桶只见 CREATE 开头语句，ALTER 桶只见 ALTER（含列/主键/索引三类 ALTER），DML 三动词只见对应数据语句；chip 计数=过滤后条数。
 - [ ] 三件套全绿。
 
 ## Out of Scope
@@ -37,3 +39,4 @@
 
 - [x] Q1 INDEX口径（决议待用户确认）：`PRIMARY KEY` 增删归 primary 不归 index；`UNIQUE KEY/INDEX` 归 index。理由：主键约束与二级索引排查场景不同。若用户要合并，改一处正则即可。
 - Q2 实施基线：small-enhance 有未提交改动（App.tsx/store.ts 等），本任务实现时以最新工作树为基，`npm test` 全绿为准。无阻塞。
+- [x] Q3 INDEX归属：归 DDL（2026-09-22用户确认）；TRUNCATE 引擎不产，不设桶。
