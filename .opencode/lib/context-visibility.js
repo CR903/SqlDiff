@@ -1,148 +1,99 @@
-import { createHash } from "node:crypto"
-
-const PART_ID_PATTERN = /^prt_([0-9a-f]{12})[0-9A-Za-z]{14}$/
-const CONTEXT_PART_KINDS = {
-  sessionStart: { offset: 2n, slot: "0" },
-  workflowState: { offset: 1n, slot: "1" },
-}
-const MAX_CONTEXT_PART_OFFSET = Object.values(CONTEXT_PART_KINDS).reduce(
-  (maximum, definition) => definition.offset > maximum ? definition.offset : maximum,
-  0n,
-)
-
 /**
- * Return the first ordinary user-authored text part.
+ * Context visibility helpers for the OpenCode 2 plugin API.
  *
- * Trellis plugins can run in either order, so callers must not mistake a
- * synthetic context part inserted by another plugin for the user's prompt.
+ * OpenCode 2 replaced V1's `experimental.chat.messages.transform` hook with
+ * `ctx.session.hook("context" | "compaction", ...)`. Those hooks receive the
+ * assembled model-request draft: `event.messages` is an array of `@opencode/ai`
+ * `Message` values (`{ id?, role, content: ContentPart[] }`), not V1's
+ * `{ info, parts }[]` transcript shape.
+ *
+ * The helpers here inject machine-authored context as an ephemeral synthetic
+ * text part at the front of the latest user message. The draft affects only
+ * the outgoing model call; stored history and the TUI stay untouched
+ * (issue #553).
  */
-export function findUserTextPart(parts) {
-  if (!Array.isArray(parts)) return undefined
-  return parts.find(
-    part => part?.type === "text" && part.synthetic !== true && part.text !== undefined,
-  )
-}
-
-function findIdentitySourcePart(parts) {
-  return parts
-    .filter(
-      part =>
-        part?.synthetic !== true &&
-        typeof part?.id === "string" &&
-        typeof part?.sessionID === "string" &&
-        typeof part?.messageID === "string" &&
-        PART_ID_PATTERN.test(part.id),
-    )
-    .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))[0]
-}
-
-function contextPartId(source, kind) {
-  const definition = CONTEXT_PART_KINDS[kind]
-  if (!definition) throw new TypeError(`unknown context part kind: ${kind}`)
-
-  const match = PART_ID_PATTERN.exec(source.id)
-  if (!match) throw new TypeError(`unsupported OpenCode part ID: ${source.id}`)
-  const sourceOrdinal = BigInt(`0x${match[1]}`)
-  if (sourceOrdinal <= MAX_CONTEXT_PART_OFFSET) {
-    throw new TypeError(`unsupported OpenCode part ID ordinal: ${source.id}`)
-  }
-  const ordinal = sourceOrdinal - definition.offset
-  const suffix = createHash("sha256")
-    .update(`${source.messageID}\0${kind}`)
-    .digest("hex")
-    .slice(0, 13)
-  return `prt_${ordinal.toString(16).padStart(12, "0")}${definition.slot}${suffix}`
-}
 
 /**
- * Persist machine-authored context ahead of the ordinary user parts without
- * mutating any existing part. The generated identity sorts before the source
- * user part in the same order during both the first request and stored replay.
- */
-export function insertSyntheticTextPart(parts, text, kind) {
-  if (!Array.isArray(parts)) throw new TypeError("parts must be an array")
-  if (typeof text !== "string") throw new TypeError("text must be a string")
-  if (!CONTEXT_PART_KINDS[kind]) throw new TypeError(`unknown context part kind: ${kind}`)
-
-  const source = findIdentitySourcePart(parts)
-  if (!source) throw new TypeError("no ordinary OpenCode part with a persisted identity")
-
-  const id = contextPartId(source, kind)
-  if (parts.some(part => part?.id === id)) {
-    throw new TypeError(`duplicate synthetic context part: ${kind}`)
-  }
-  const part = {
-    id,
-    sessionID: source.sessionID,
-    messageID: source.messageID,
-    type: "text",
-    text,
-    synthetic: true,
-  }
-  const insertionIndex = parts.findIndex(existing => typeof existing?.id !== "string" || id < existing.id)
-  if (insertionIndex === -1) parts.push(part)
-  else parts.splice(insertionIndex, 0, part)
-  return part
-}
-
-/** OpenCode hook that mutates the in-memory model payload, not stored history. */
-export const MESSAGES_TRANSFORM_HOOK = "experimental.chat.messages.transform"
-
-/**
- * Index of the last user message in an OpenCode `{info, parts}[]` transcript.
- * Compaction and prompt both pass that shape to messages.transform.
+ * Index of the last user message in a `Message[]` transcript, or -1.
+ * The `context` and `compaction` hooks both pass that shape.
  */
 export function findLatestUserMessageIndex(messages) {
   if (!Array.isArray(messages)) return -1
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]?.info?.role === "user") return i
+    if (messages[i]?.role === "user") return i
   }
   return -1
 }
 
-export function platformInputFromMessages(messages) {
-  const index = findLatestUserMessageIndex(messages)
-  if (index < 0) return null
-  const info = messages[index].info
-  if (!info || typeof info !== "object") return null
-  return {
-    sessionID: info.sessionID,
-    agent: info.agent,
-  }
-}
-
-export function latestUserPromptText(messages) {
-  const index = findLatestUserMessageIndex(messages)
-  if (index < 0) return ""
-  const part = findUserTextPart(messages[index].parts)
-  return typeof part?.text === "string" ? part.text : ""
-}
-
-export function transcriptHasAssistantMessage(messages) {
-  if (!Array.isArray(messages)) return false
-  return messages.some(message => message?.info?.role === "assistant")
+/** Synthetic parts injected by these plugins carry `part.metadata.trellis`. */
+function isSyntheticTrellisPart(part) {
+  return Boolean(part?.metadata?.trellis)
 }
 
 /**
- * Clone the latest user message and prepend an ephemeral synthetic text
- * part. The original message object and its `parts` array are left
- * untouched so a transform cannot leak into OpenCode's stored history.
+ * Return the first ordinary user-authored text part of a message, skipping
+ * synthetic context parts injected by these plugins.
+ *
+ * Trellis plugins can run in either order, so callers must not mistake an
+ * injected context part for the user's prompt.
  */
-export function prependEphemeralText(messages, text) {
+export function findUserTextPart(message) {
+  const content = Array.isArray(message?.content) ? message.content : undefined
+  if (!content) return undefined
+  return content.find(
+    part =>
+      part?.type === "text" &&
+      !isSyntheticTrellisPart(part) &&
+      typeof part.text === "string",
+  )
+}
+
+/** Text of the latest user message's first ordinary text part ("" when absent). */
+export function latestUserPromptText(messages) {
+  const index = findLatestUserMessageIndex(messages)
+  if (index < 0) return ""
+  const part = findUserTextPart(messages[index])
+  return typeof part?.text === "string" ? part.text : ""
+}
+
+/** True when any assistant message is already in the transcript. */
+export function transcriptHasAssistantMessage(messages) {
   if (!Array.isArray(messages)) return false
-  if (typeof text !== "string") return false
+  return messages.some(message => message?.role === "assistant")
+}
+
+/**
+ * Prepend an ephemeral synthetic text part to the latest user message.
+ *
+ * `kind` namespaces the injection (`sessionStart` / `workflowState`) through
+ * `part.metadata.trellis[kind]`, so that:
+ *   - each plugin replaces only its own previous part — idempotent when the
+ *     draft is reused across tool-driven continuations, and two plugins
+ *     injecting into the same message never clobber each other; and
+ *   - `findUserTextPart` can skip injected parts when recovering the user's
+ *     original prompt.
+ *
+ * The original message object and its `content` array are left untouched so
+ * an injection cannot leak into OpenCode's stored history: the cloned message
+ * replaces the array slot.
+ */
+export function prependEphemeralText(messages, text, kind) {
+  if (!Array.isArray(messages)) return false
+  if (typeof text !== "string" || !kind) return false
   const index = findLatestUserMessageIndex(messages)
   if (index < 0) return false
   const original = messages[index]
-  const parts = Array.isArray(original.parts) ? original.parts.slice() : []
-  parts.unshift({
+  const content = Array.isArray(original.content) ? original.content.slice() : []
+  const existing = content.findIndex(part => part?.metadata?.trellis?.[kind] === true)
+  if (existing >= 0) content.splice(existing, 1)
+  content.unshift({
     type: "text",
     text,
-    synthetic: true,
+    metadata: { trellis: { [kind]: true } },
   })
   messages[index] = {
     ...original,
-    parts,
+    content,
   }
   return true
 }

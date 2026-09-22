@@ -504,24 +504,6 @@ export function hasInjectedTrellisContext(messages) {
   })
 }
 
-export async function hasPersistedInjectedContext(client, directory, sessionID) {
-  try {
-    const response = await client.session.messages({
-      path: { id: sessionID },
-      query: { directory },
-      throwOnError: true,
-    })
-    return hasInjectedTrellisContext(response.data || [])
-  } catch (error) {
-    debugLog(
-      "session",
-      "Failed to read session history for dedupe:",
-      error instanceof Error ? error.message : String(error),
-    )
-    return false
-  }
-}
-
 export function markContextInjected(part) {
   markPartAsSessionStart(part)
 }
