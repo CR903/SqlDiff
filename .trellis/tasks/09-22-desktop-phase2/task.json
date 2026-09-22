@@ -1,0 +1,31 @@
+{
+  "id": "desktop-phase2",
+  "name": "desktop-phase2",
+  "title": "桌面版二期增强",
+  "description": "转换器+小增强+e2e深度测试",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "smarterlab",
+  "assignee": "smarterlab",
+  "createdAt": "2026-09-22",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "09-22-converters",
+    "09-22-small-enhance",
+    "09-22-deep-e2e",
+    "09-22-ddl-dml-index"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
