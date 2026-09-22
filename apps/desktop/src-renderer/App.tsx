@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useDesktopStore, type DiffFilter, type DmlFilter, type LeftTab, type ObjectTypeFilter, type SlotId } from './store';
+import { useDesktopStore, type AspectFilter, type DiffFilter, type DmlFilter, type LeftTab, type ObjectTypeFilter, type SlotId, type StmtKindFilter } from './store';
 import type { DataTableStatus, DiffItem, HistoryEntry, NodeMeta, ObjectType, SecretBundle } from '../src-core/types';
 import type { DataTableLists, NodeCreateInput } from '../src-main/preload';
 import { buildExportText, copyText, downloadSqlFile, highlightSql } from './sql';
@@ -33,6 +33,13 @@ const DML_TABS: Array<{ value: DmlFilter; label: string }> = [
   { value: 'INSERT', label: 'INSERT' },
   { value: 'DELETE', label: 'DELETE' },
   { value: 'UPDATE', label: 'UPDATE' },
+];
+
+/** R1 一级维度：结构 DDL / 数据 DML（与 CREATE/DROP/CHANGE Tab、DML 三 Tab 正交组合）。 */
+const STMT_DIM_TABS: Array<{ value: StmtKindFilter; label: string; title: string }> = [
+  { value: 'ALL', label: '全部', title: '结构 + 数据全部展示' },
+  { value: 'DDL', label: 'DDL', title: '只看结构语句（表/视图/过程/函数）' },
+  { value: 'DML', label: 'DML', title: '只看数据行差异（INSERT/DELETE/UPDATE）' },
 ];
 
 const OBJ_FILTERS: Array<{ value: ObjectTypeFilter; label: string }> = [
@@ -499,8 +506,13 @@ function DiffTable({
   rows,
   diffFilter,
   objectTypeFilter,
+  stmtKindFilter,
+  aspectFilter,
+  indexCount,
   onDiffFilter,
   onObjFilter,
+  onStmtKindFilter,
+  onAspectFilter,
   onSelect,
   selectedId,
 }: {
@@ -510,13 +522,32 @@ function DiffTable({
   rows: DiffItem[];
   diffFilter: DiffFilter;
   objectTypeFilter: ObjectTypeFilter;
+  stmtKindFilter: StmtKindFilter;
+  aspectFilter: AspectFilter;
+  /** 当前维度+类型视图下的索引语句数（chip 标签用，不过滤自身）。 */
+  indexCount: number;
   onDiffFilter: (f: DiffFilter) => void;
   onObjFilter: (f: ObjectTypeFilter) => void;
+  onStmtKindFilter: (f: StmtKindFilter) => void;
+  onAspectFilter: (f: AspectFilter) => void;
   onSelect: (id: string | null) => void;
   selectedId: string | null;
 }) {
   return (
     <div className="card diff-card">
+      <div className="diff-tabs">
+        {STMT_DIM_TABS.map((t) => (
+          <button
+            key={t.value}
+            className={stmtKindFilter === t.value ? 'tab-btn active' : 'tab-btn'}
+            title={t.title}
+            onClick={() => onStmtKindFilter(t.value)}
+          >
+            {t.label}
+          </button>
+        ))}
+        <span className="diff-stat">维度（DDL=结构 / DML=数据）</span>
+      </div>
       <div className="diff-tabs">
         {DIFF_TABS.map((t) => (
           <button
@@ -539,6 +570,13 @@ function DiffTable({
             {f.label}
           </button>
         ))}
+        <button
+          className={aspectFilter === 'index' ? 'chip active' : 'chip'}
+          title="仅看索引语句（ADD/DROP INDEX|KEY；PRIMARY KEY 归主键不归此类，结构范围）"
+          onClick={() => onAspectFilter(aspectFilter === 'index' ? 'ALL' : 'index')}
+        >
+          INDEX ({indexCount})
+        </button>
       </div>
       <div className="diff-scroll">
         <table className="diff-table">
@@ -584,10 +622,77 @@ function dataStatusText(s: DataTableStatus): string {
     return `完成（A${s.countA ?? '?'}行/B${s.countB ?? '?'}行，I${s.insertCount ?? 0}/D${s.deleteCount ?? 0}/U${s.updateCount ?? 0}）`;
   if (s.status === 'running') return '进行中…';
   if (s.status === 'skipped')
-    return `跳过无主键${s.countA != null || s.countB != null ? `（A${s.countA ?? '?'}行/B${s.countB ?? '?'}行）` : ''} — ${s.message ?? ''}`;
+    return `跳过（无可用行身份）${s.countA != null || s.countB != null ? `（A${s.countA ?? '?'}行/B${s.countB ?? '?'}行）` : ''} — ${s.message ?? ''}`;
   if (s.status === 'confirm-needed') return `超阈待确认 — ${s.message ?? ''}`;
   if (s.status === 'error') return `失败 — ${s.message ?? '未知错误'}`;
   return '待比';
+}
+
+/** 数据对比可调参数三输入（分页批量 / 行阈值 / INSERT 分批；失焦/回车提交，非法回落默认）。 */
+function DataOptionsInputs({
+  batchRows,
+  threshold,
+  insertBatch,
+  onBatchRows,
+  onThreshold,
+  onInsertBatch,
+}: {
+  batchRows: number;
+  threshold: number;
+  insertBatch: number;
+  onBatchRows: (v: string) => void;
+  onThreshold: (v: string) => void;
+  onInsertBatch: (v: string) => void;
+}) {
+  const [b, setB] = useState(String(batchRows));
+  const [t, setT] = useState(String(threshold));
+  const [i, setI] = useState(String(insertBatch));
+  useEffect(() => setB(String(batchRows)), [batchRows]);
+  useEffect(() => setT(String(threshold)), [threshold]);
+  useEffect(() => setI(String(insertBatch)), [insertBatch]);
+  return (
+    <div className="data-pair-row" title="数据对比可调参数：非法/越界输入回落默认">
+      <label title="主键范围分页批量（100-5000，默认 1000）">
+        分页批量
+        <input
+          className="data-opt-input mono"
+          inputMode="numeric"
+          value={b}
+          onChange={(e) => setB(e.target.value)}
+          onBlur={() => onBatchRows(b)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+          }}
+        />
+      </label>
+      <label title="单表行数阈值（10000-1000000，默认 100000；超阈仍需二次确认）">
+        行阈值
+        <input
+          className="data-opt-input mono"
+          inputMode="numeric"
+          value={t}
+          onChange={(e) => setT(e.target.value)}
+          onBlur={() => onThreshold(t)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+          }}
+        />
+      </label>
+      <label title="INSERT 多 VALUES 分批行数（100-2000，默认 500）">
+        INSERT分批
+        <input
+          className="data-opt-input mono"
+          inputMode="numeric"
+          value={i}
+          onChange={(e) => setI(e.target.value)}
+          onBlur={() => onInsertBatch(i)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+          }}
+        />
+      </label>
+    </div>
+  );
 }
 
 function DataSection({
@@ -596,11 +701,17 @@ function DataSection({
   pairs,
   statusRows,
   needConfirm,
+  batchRows,
+  threshold,
+  insertBatch,
   onLoadLists,
   onSetPairB,
   onRemovePair,
   onAddPair,
   onConfirmRerun,
+  onBatchRows,
+  onThreshold,
+  onInsertBatch,
   onToast,
 }: {
   lists: DataTableLists;
@@ -608,11 +719,17 @@ function DataSection({
   pairs: Array<{ a: string; b: string }>;
   statusRows: DataTableStatus[];
   needConfirm: boolean;
+  batchRows: number;
+  threshold: number;
+  insertBatch: number;
   onLoadLists: () => void;
   onSetPairB: (index: number, b: string) => void;
   onRemovePair: (index: number) => void;
   onAddPair: (a: string, b: string) => void;
   onConfirmRerun: () => void;
+  onBatchRows: (v: string) => void;
+  onThreshold: (v: string) => void;
+  onInsertBatch: (v: string) => void;
   onToast: (msg: string) => void;
 }) {
   const [addA, setAddA] = useState('');
@@ -628,6 +745,14 @@ function DataSection({
       {pairs.length === 0 && (
         <div className="empty">未配置映射时按 A/B 同名交集跑；也可先载入清单再手动改 B 表下拉 / 增删行。</div>
       )}
+      <DataOptionsInputs
+        batchRows={batchRows}
+        threshold={threshold}
+        insertBatch={insertBatch}
+        onBatchRows={onBatchRows}
+        onThreshold={onThreshold}
+        onInsertBatch={onInsertBatch}
+      />
       {pairs.map((p, i) => (
         <div className="data-pair-row" key={`${p.a}→${p.b}@${i}`}>
           <span className="mono">{p.a}</span>
@@ -701,13 +826,13 @@ function DataSection({
       )}
       {needConfirm && (
         <div className="drop-alert">
-          ⚠️ 部分大表行数超阈（默认 10 万），已跳过。请确认后重跑。
+          ⚠️ 部分大表行数超阈（当前阈值 {threshold}），已跳过。请确认后重跑。
           <button className="btn btn-sm btn-primary" onClick={onConfirmRerun} title="二次确认超阈大表并重跑">
             确认并重跑
           </button>
         </div>
       )}
-      <p className="hint">💡 只读生成 INSERT/DELETE/UPDATE，不执行；无主键表跳过行级 diff，只给行数差异。</p>
+      <p className="hint">💡 只读生成 INSERT/DELETE/UPDATE，不执行；无主键且无可用 UNIQUE 的表跳过行级 diff，只给行数差异；全列 NOT NULL 的 UNIQUE 键可等价做行身份。</p>
     </div>
   );
 }
@@ -1195,10 +1320,15 @@ export default function App() {
   const dataLists = useDesktopStore((s) => s.dataLists);
   const dataListsLoading = useDesktopStore((s) => s.dataListsLoading);
   const dataStatus = useDesktopStore((s) => s.dataStatus);
+  const dataBatchRows = useDesktopStore((s) => s.dataBatchRows);
+  const dataThreshold = useDesktopStore((s) => s.dataThreshold);
+  const dataInsertBatch = useDesktopStore((s) => s.dataInsertBatch);
   const tableFilter = useDesktopStore((s) => s.tableFilter);
   const diffFilter = useDesktopStore((s) => s.diffFilter);
   const dmlFilter = useDesktopStore((s) => s.dmlFilter);
   const objectTypeFilter = useDesktopStore((s) => s.objectTypeFilter);
+  const stmtKindFilter = useDesktopStore((s) => s.stmtKindFilter);
+  const aspectFilter = useDesktopStore((s) => s.aspectFilter);
   const items = useDesktopStore((s) => s.items);
   const selectedId = useDesktopStore((s) => s.selectedId);
   const comparing = useDesktopStore((s) => s.comparing);
@@ -1216,6 +1346,9 @@ export default function App() {
   const toggleScope = useDesktopStore((s) => s.toggleScope);
   const toggleIncludeData = useDesktopStore((s) => s.toggleIncludeData);
   const setDataPairB = useDesktopStore((s) => s.setDataPairB);
+  const setDataBatchRows = useDesktopStore((s) => s.setDataBatchRows);
+  const setDataThreshold = useDesktopStore((s) => s.setDataThreshold);
+  const setDataInsertBatch = useDesktopStore((s) => s.setDataInsertBatch);
   const removeDataPair = useDesktopStore((s) => s.removeDataPair);
   const addDataPair = useDesktopStore((s) => s.addDataPair);
   const setConfirmDataThreshold = useDesktopStore((s) => s.setConfirmDataThreshold);
@@ -1224,6 +1357,8 @@ export default function App() {
   const setDiffFilter = useDesktopStore((s) => s.setDiffFilter);
   const setDmlFilter = useDesktopStore((s) => s.setDmlFilter);
   const setObjectTypeFilter = useDesktopStore((s) => s.setObjectTypeFilter);
+  const setStmtKindFilter = useDesktopStore((s) => s.setStmtKindFilter);
+  const setAspectFilter = useDesktopStore((s) => s.setAspectFilter);
   const selectDiff = useDesktopStore((s) => s.selectDiff);
   const setToast = useDesktopStore((s) => s.setToast);
   const toggleStar = useDesktopStore((s) => s.toggleStar);
@@ -1271,25 +1406,43 @@ export default function App() {
   // 结构组（不含数据行，数据走独立三 Tab）。
   const structItems = useMemo(() => items.filter((it) => it.objectType !== 'data'), [items]);
   const dataItems = useMemo(() => items.filter((it) => it.objectType === 'data'), [items]);
-  const byObj = useMemo(
+  // R1/R3 过滤链（复制/导出与 DiffTable 行同源，复制=所见）：
+  // 维度 -> 对象类型+关键字 -> 切面 -> CREATE/DROP/CHANGE Tab。
+  const byDim = useMemo(
     () =>
       structItems.filter(
+        (it) => stmtKindFilter === 'ALL' || (it.stmtKind ?? 'DDL') === stmtKindFilter,
+      ),
+    [structItems, stmtKindFilter],
+  );
+  const byObj = useMemo(
+    () =>
+      byDim.filter(
         (it) =>
           (objectTypeFilter === 'ALL' || it.objectType === objectTypeFilter) &&
           (!kw ||
             it.objectName.toLowerCase().includes(kw) ||
             it.sql.toLowerCase().includes(kw)),
       ),
-    [structItems, objectTypeFilter, kw],
+    [byDim, objectTypeFilter, kw],
+  );
+  // INDEX chip 标签计数（切面自身不过滤，保证开关可逆可见）。
+  const indexCount = useMemo(
+    () => byObj.filter((it) => (it.aspects ?? []).includes('index')).length,
+    [byObj],
+  );
+  const byAspect = useMemo(
+    () => (aspectFilter === 'ALL' ? byObj : byObj.filter((it) => (it.aspects ?? []).includes(aspectFilter))),
+    [byObj, aspectFilter],
   );
   const counts = useMemo(() => {
-    const c: Record<DiffFilter, number> = { ALL: byObj.length, CREATE: 0, DROP: 0, CHANGE: 0 };
-    for (const it of byObj) c[it.changeType] += 1;
+    const c: Record<DiffFilter, number> = { ALL: byAspect.length, CREATE: 0, DROP: 0, CHANGE: 0 };
+    for (const it of byAspect) c[it.changeType] += 1;
     return c;
-  }, [byObj]);
+  }, [byAspect]);
   const tabItems = useMemo(
-    () => byObj.filter((it) => diffFilter === 'ALL' || it.changeType === diffFilter),
-    [byObj, diffFilter],
+    () => byAspect.filter((it) => diffFilter === 'ALL' || it.changeType === diffFilter),
+    [byAspect, diffFilter],
   );
   const dmlCounts = useMemo(() => {
     const c: Record<DmlFilter, number> = { ALL: dataItems.length, INSERT: 0, DELETE: 0, UPDATE: 0 };
@@ -1447,6 +1600,9 @@ export default function App() {
               pairs={dataPairs}
               statusRows={dataStatus}
               needConfirm={needConfirm}
+              batchRows={dataBatchRows}
+              threshold={dataThreshold}
+              insertBatch={dataInsertBatch}
               onLoadLists={() => void refreshDataTables()}
               onSetPairB={setDataPairB}
               onRemovePair={removeDataPair}
@@ -1455,6 +1611,9 @@ export default function App() {
                 setConfirmDataThreshold(true);
                 void runCompare();
               }}
+              onBatchRows={setDataBatchRows}
+              onThreshold={setDataThreshold}
+              onInsertBatch={setDataInsertBatch}
               onToast={setToast}
             />
           )}
@@ -1465,12 +1624,17 @@ export default function App() {
             rows={tabItems}
             diffFilter={diffFilter}
             objectTypeFilter={objectTypeFilter}
+            stmtKindFilter={stmtKindFilter}
+            aspectFilter={aspectFilter}
+            indexCount={indexCount}
             onDiffFilter={setDiffFilter}
             onObjFilter={setObjectTypeFilter}
+            onStmtKindFilter={setStmtKindFilter}
+            onAspectFilter={setAspectFilter}
             onSelect={selectDiff}
             selectedId={selectedId}
           />
-          {(includeData || dataItems.length > 0 || dataStatus.length > 0) && (
+          {stmtKindFilter !== 'DDL' && (includeData || dataItems.length > 0 || dataStatus.length > 0) && (
             <DataDiffTable
               counts={dmlCounts}
               rows={dmlTabItems}
@@ -1483,11 +1647,16 @@ export default function App() {
               onToast={setToast}
             />
           )}
+          {stmtKindFilter === 'DML' && !includeData && dataItems.length === 0 && dataStatus.length === 0 && (
+            <div className="card">
+              <div className="empty">DML 为数据行差异 — 勾选「数据」并对比后在此查看 INSERT / DELETE / UPDATE 🍃</div>
+            </div>
+          )}
         </section>
 
         <SqlPreview
-          tabItems={tabItems}
-          extraItems={dataItems}
+          tabItems={stmtKindFilter === 'DML' ? dmlTabItems : tabItems}
+          extraItems={stmtKindFilter === 'DML' ? [] : dataItems}
           selectedId={selectedId}
           aName={aliasOf(slotA)}
           bName={aliasOf(slotB)}

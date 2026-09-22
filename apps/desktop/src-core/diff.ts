@@ -62,6 +62,22 @@ export function diffTable(
   return diffTableField(name, raw1, raw2);
 }
 
+/**
+ * R2 表语句拆分：按 `/;\s*\n/` 切为单语句（尾补 `;` + `\n`，过滤空块）。
+ * 仅表条目调用：CREATE TABLE 内无分号，拆分安全；
+ * 视图/过程/函数含 DELIMITER 不走本函数，保持原子。
+ */
+export function splitStatements(tableSql: string): string[] {
+  const text = tableSql ?? '';
+  if (!text.trim()) return [];
+  return text
+    .split(/;\s*\n/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    // 切分消耗了 `;`（`;\n` 结尾）；末块无换行时 `;` 仍在，需先去重再补回，避免 `;;`。
+    .map((s) => `${s.endsWith(';') ? s : `${s};`}\n`);
+}
+
 /** 老 diffTableField:267-335 — 逐行解析列/主键/索引，生成 ALTER 语句串。 */
 export function diffTableField(name: string, table1: string, table2: string): string {
   const t1 = table1.split('\n');

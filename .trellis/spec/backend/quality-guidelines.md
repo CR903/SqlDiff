@@ -51,6 +51,10 @@ import path from 'node:path'; // 或 import * as path，二选一全仓统一
 - DB直连用 `mysql2/promise`，SSH单跳用 `ssh2`（密码+密钥），本地端口32000-35000随机+EADDRINUSE重试，隧道复用Map，`before-quit`关池。
 - metadata SQL与 `DB.js:75/79/83` 字面一致，SHOW CREATE缺行返回null不抛错，并发限流10。
 - 分类：DROP优先但DROP+CREATE同现归CHANGE；视图CREATE OR REPLACE归CHANGE；导出排序DROP→CREATE→CHANGE。
+- DiffItem一律单语句：表多ALTER按 `/;\s*\n/` 拆条目（id 后缀 `:s<n>`，末块无换行防双分号），例程 DELIMITER 块不拆；过滤/复制/统计走同一条目模型，保证复制=所见。
+- aspect判定顺序固定 table→primary→index→column（CREATE TABLE 体内含 PRIMARY KEY，table 必须先判）；PRIMARY KEY 增删归 primary，UNIQUE/FULLTEXT/SPATIAL 归 index。
+- stats 对称：`recountStats` 与 `compare-run` 数据合并分支必须计数字段一致（新增 stats 字段两处同步加，否则过滤与合并口径分裂）。
+- DDL/DML 维度：`objectType==='data'` 即 DML，其余 DDL；维度与 CREATE/DROP/CHANGE、DML 三 Tab 正交 AND 过滤。
 
 ---
 

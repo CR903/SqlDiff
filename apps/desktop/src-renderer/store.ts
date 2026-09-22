@@ -1,6 +1,5 @@
 import { create } from 'zustand';
-import type {
-  ChangeType,
+import type { ChangeType,
   ConnTestResult,
   DataTablePair,
   DataTableStatus,
@@ -11,7 +10,23 @@ import type {
   NodeMeta,
   ObjectType,
   SecretBundle,
+  StmtAspect,
+  StmtKind,
 } from '../src-core/types';
+import {
+  DEFAULT_BATCH_ROWS,
+  DEFAULT_INSERT_BATCH,
+  DEFAULT_ROW_THRESHOLD,
+  MAX_BATCH_ROWS,
+  MAX_INSERT_BATCH,
+  MAX_ROW_THRESHOLD,
+  MIN_BATCH_ROWS,
+  MIN_INSERT_BATCH,
+  MIN_ROW_THRESHOLD,
+  normalizeBatchRows,
+  normalizeInsertBatch,
+  normalizeRowThreshold,
+} from '../src-core/data-options';
 import type { DataTableLists, NodeCreateInput, SqlDiffApi } from '../src-main/preload';
 import { runDemoCompare } from './demo';
 
@@ -20,6 +35,10 @@ export type DiffFilter = 'ALL' | ChangeType;
 export type DmlFilter = 'ALL' | DmlType;
 export type SlotId = 'A' | 'B';
 export type ObjectTypeFilter = ObjectType | 'ALL';
+/** R1 一级维度：全部 / DDL（结构）/ DML（数据），与 CREATE/DROP/CHANGE Tab、DML 三 Tab 正交。 */
+export type StmtKindFilter = 'ALL' | StmtKind;
+/** R3 语句切面过滤（INDEX chip 等），只作用于结构列表。 */
+export type AspectFilter = 'ALL' | StmtAspect;
 
 const LAST_COMBO_KEY = 'sqldiff.lastCombo';
 
@@ -99,7 +118,7 @@ function writeLastCombo(aId: string | null, bId: string | null): void {
 function tableStatusText(status: string): string {
   if (status === 'running') return '对比中';
   if (status === 'done') return '完成';
-  if (status === 'skipped') return '跳过（无主键）';
+  if (status === 'skipped') return '跳过（无可用行身份）';
   if (status === 'error') return '失败';
   if (status === 'confirm-needed') return '超阈待确认';
   return status;
@@ -129,11 +148,18 @@ interface DesktopState {
   dataStatus: DataTableStatus[];
   /** 超阈大表已二次确认（重跑时透传 dataOptions.confirmOverThreshold）。 */
   confirmDataThreshold: boolean;
+  /** 数据对比可调参数（R2：分页批量 / 行阈值 / INSERT 分批，非法越界回落默认+toast）。 */
+  dataBatchRows: number;
+  dataThreshold: number;
+  dataInsertBatch: number;
   /** 差异 focus：当前 Tab + 对象类型二级过滤 + 选中行 */
   diffFilter: DiffFilter;
   /** 数据三 Tab 当前项 */
   dmlFilter: DmlFilter;
   objectTypeFilter: ObjectTypeFilter;
+  /** R1 一级维度（DDL/DML）+ R3 切面（INDEX chip），跨对比保留（派生过滤自动生效）。 */
+  stmtKindFilter: StmtKindFilter;
+  aspectFilter: AspectFilter;
   items: DiffItem[];
   selectedId: string | null;
   /** 对比进度 */
@@ -155,12 +181,18 @@ interface DesktopState {
   setDiffFilter: (f: DiffFilter) => void;
   setDmlFilter: (f: DmlFilter) => void;
   setObjectTypeFilter: (f: ObjectTypeFilter) => void;
+  setStmtKindFilter: (f: StmtKindFilter) => void;
+  setAspectFilter: (f: AspectFilter) => void;
   toggleIncludeData: () => void;
   setDataPairs: (pairs: DataTablePair[]) => void;
   setDataPairB: (index: number, b: string) => void;
   removeDataPair: (index: number) => void;
   addDataPair: (a: string, b: string) => void;
   setConfirmDataThreshold: (v: boolean) => void;
+  /** 数据可调参数 setters（接受输入框字符串；非法/越界回落默认并 toast）。 */
+  setDataBatchRows: (v: unknown) => void;
+  setDataThreshold: (v: unknown) => void;
+  setDataInsertBatch: (v: unknown) => void;
   refreshDataTables: () => Promise<void>;
   selectDiff: (id: string | null) => void;
   setToast: (msg: string | null) => void;
@@ -196,9 +228,14 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
   dataListsLoading: false,
   dataStatus: [],
   confirmDataThreshold: false,
+  dataBatchRows: DEFAULT_BATCH_ROWS,
+  dataThreshold: DEFAULT_ROW_THRESHOLD,
+  dataInsertBatch: DEFAULT_INSERT_BATCH,
   diffFilter: 'ALL',
   dmlFilter: 'ALL',
   objectTypeFilter: 'ALL',
+  stmtKindFilter: 'ALL',
+  aspectFilter: 'ALL',
   items: [],
   selectedId: null,
   comparing: false,
@@ -245,6 +282,8 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
   setDiffFilter: (f) => set({ diffFilter: f, selectedId: null }),
   setDmlFilter: (f) => set({ dmlFilter: f, selectedId: null }),
   setObjectTypeFilter: (f) => set({ objectTypeFilter: f, selectedId: null }),
+  setStmtKindFilter: (f) => set({ stmtKindFilter: f, selectedId: null }),
+  setAspectFilter: (f) => set({ aspectFilter: f, selectedId: null }),
   toggleIncludeData: () => set((s) => ({ includeData: !s.includeData })),
   setDataPairs: (pairs) => set({ dataPairs: pairs }),
   setDataPairB: (index, b) =>
@@ -257,6 +296,33 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
     );
   },
   setConfirmDataThreshold: (v) => set({ confirmDataThreshold: v }),
+  setDataBatchRows: (v) => {
+    const r = normalizeBatchRows(v);
+    set({
+      dataBatchRows: r.value,
+      ...(r.adjusted
+        ? { toast: `分页批量非法/越界，已回落默认 ${DEFAULT_BATCH_ROWS}（范围 ${MIN_BATCH_ROWS}-${MAX_BATCH_ROWS}）` }
+        : {}),
+    });
+  },
+  setDataThreshold: (v) => {
+    const r = normalizeRowThreshold(v);
+    set({
+      dataThreshold: r.value,
+      ...(r.adjusted
+        ? { toast: `行阈值非法/越界，已回落默认 ${DEFAULT_ROW_THRESHOLD}（范围 ${MIN_ROW_THRESHOLD}-${MAX_ROW_THRESHOLD}，超阈仍需二次确认）` }
+        : {}),
+    });
+  },
+  setDataInsertBatch: (v) => {
+    const r = normalizeInsertBatch(v);
+    set({
+      dataInsertBatch: r.value,
+      ...(r.adjusted
+        ? { toast: `INSERT 分批非法/越界，已回落默认 ${DEFAULT_INSERT_BATCH}（范围 ${MIN_INSERT_BATCH}-${MAX_INSERT_BATCH}）` }
+        : {}),
+    });
+  },
   refreshDataTables: async () => {
     const s = get();
     const api = getIpc();
@@ -412,6 +478,7 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
     }
     const api = getIpc();
     const { slotA, slotB, scopes, tableFilter, includeData, dataPairs, confirmDataThreshold } = s;
+    const { dataBatchRows, dataThreshold, dataInsertBatch } = s;
     const nodes = s.nodes;
     const aliasOf = (id: string | null): string =>
       nodes.find((n) => n.id === id)?.alias ?? (id ?? '未选');
@@ -441,7 +508,16 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
           tableFilter,
           includeData,
           ...(dataPairs.length > 0 ? { dataTables: dataPairs } : {}),
-          ...(confirmDataThreshold ? { dataOptions: { confirmOverThreshold: true } } : {}),
+          ...(includeData
+            ? {
+                dataOptions: {
+                  batchRows: dataBatchRows,
+                  insertBatch: dataInsertBatch,
+                  threshold: dataThreshold,
+                  ...(confirmDataThreshold ? { confirmOverThreshold: true } : {}),
+                },
+              }
+            : {}),
         });
         tick(85, '分类 + 风险评估…');
         const dataNote =

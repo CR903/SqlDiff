@@ -241,7 +241,7 @@ describe('compareRun 组装/统计/排序', () => {
   it('空快照 -> 零条目', () => {
     const r = compareRun(meta(), meta());
     expect(r.items).toEqual([]);
-    expect(r.stats).toEqual({ ALL: 0, CREATE: 0, DROP: 0, CHANGE: 0, DML: { INSERT: 0, DELETE: 0, UPDATE: 0 } });
+    expect(r.stats).toEqual({ ALL: 0, CREATE: 0, DROP: 0, CHANGE: 0, INDEX: 0, DML: { INSERT: 0, DELETE: 0, UPDATE: 0 } });
   });
 
   it('组装：新增表 CREATE + 删除过程 DROP + 变更视图 CHANGE，统计与排序 DROP->CREATE->CHANGE', () => {
@@ -257,15 +257,20 @@ describe('compareRun 组装/统计/排序', () => {
     });
     const r = compareRun(a, b);
     expect(r.items).toHaveLength(3);
-    expect(r.stats).toEqual({ ALL: 3, CREATE: 1, DROP: 1, CHANGE: 1, DML: { INSERT: 0, DELETE: 0, UPDATE: 0 } });
+    expect(r.stats).toEqual({ ALL: 3, CREATE: 1, DROP: 1, CHANGE: 1, INDEX: 0, DML: { INSERT: 0, DELETE: 0, UPDATE: 0 } });
     expect(r.items.map((i) => i.changeType)).toEqual(['DROP', 'CREATE', 'CHANGE']);
     expect(r.items[0]?.objectName).toBe('p_old');
     expect(r.items[1]?.objectName).toBe('users');
     expect(r.items[2]?.objectName).toBe('v1');
+    // 表条目语句级 id（含 :s<n> 后缀），例程保持原子 id；全量 DDL。
+    expect(r.items.map((i) => i.id)).toEqual(['procedure:p_old', 'table:users:s0', 'view:v1']);
     for (const item of r.items) {
-      expect(item.id).toBe(`${item.objectType}:${item.objectName}`);
+      expect(item.stmtKind).toBe('DDL');
+      expect(item.aspects).toHaveLength(1);
       expect(item.explain).toBeTruthy();
     }
+    expect(r.items[1]?.aspects).toEqual(['table']);
+    expect(r.items[2]?.aspects).toEqual(['routine']);
     expect(r.items[0]?.rollback).toContain('回滚占位');
   });
 

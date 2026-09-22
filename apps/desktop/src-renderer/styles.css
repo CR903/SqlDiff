@@ -147,6 +147,9 @@ button.star { background: none; border: none; cursor: pointer; font-size: 14px; 
 /* 数据对比：表映射行 + 逐表状态 */
 .data-pair-row { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-top: 6px; }
 .data-pair-row .slot-select { margin-top: 0; width: auto; flex: 1; }
+.data-pair-row label { display: inline-flex; align-items: center; gap: 4px; color: #94a3b8; }
+.data-opt-input { background: #0b0f14; border: 1px solid #2a3648; border-radius: 6px; color: #e6edf3; padding: 4px 8px; font-size: 12px; outline: none; width: 88px; }
+.data-opt-input:focus { border-color: #3b82f6; }
 .data-status { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto; }
 .data-status-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: #94a3b8; background: #0b0f14; border: 1px solid #2a3648; border-radius: 6px; padding: 4px 8px; }
 .data-status-row.st-done { border-color: #14532d; }

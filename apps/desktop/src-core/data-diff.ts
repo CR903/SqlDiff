@@ -13,6 +13,8 @@
 //    但 `undefined` 会吐非法字面量）。数字/布尔保持老语义原文拼接。
 // 3. Date/Buffer 显式转义为字符串字面量（老代码靠隐式 toString，Buffer 会吐 "[object]" 乱码）。
 
+import { DEFAULT_INSERT_BATCH } from './data-options';
+
 /** 数据行（mysql2 RowDataPacket 形状：列名 -> 值）。 */
 export type DataRow = Record<string, unknown>;
 
@@ -89,9 +91,9 @@ export function diffDataRows(
   rowsB: readonly DataRow[],
   pk: readonly string[],
   table: string,
-  insertBatch = 500,
+  insertBatch = DEFAULT_INSERT_BATCH,
 ): DataDiffResult {
-  const batch = Number.isInteger(insertBatch) && insertBatch > 0 ? insertBatch : 500;
+  const batch = Number.isInteger(insertBatch) && insertBatch > 0 ? insertBatch : DEFAULT_INSERT_BATCH;
   const keys: string[] = [];
   const mapA = new Map<string, DataRow>();
   const mapB = new Map<string, DataRow>();

@@ -13,6 +13,20 @@ export type DmlType = 'INSERT' | 'DELETE' | 'UPDATE';
 
 export type RiskLevel = 'high' | 'medium' | 'low';
 
+/** 语句维度：结构对象一律 DDL，数据行一律 DML（R1 一级维度）。 */
+export type StmtKind = 'DDL' | 'DML';
+
+/**
+ * 语句切面（单语句独立打标）：
+ * - column：ADD/DROP/CHANGE/MODIFY COLUMN
+ * - primary：ADD/DROP PRIMARY KEY（Q1：不归 index）
+ * - index：ADD/DROP INDEX|KEY|FULLTEXT|SPATIAL|UNIQUE INDEX
+ * - table：CREATE/DROP TABLE 整表
+ * - routine：视图/过程/函数（DROP+CREATE 保持原子）
+ * - data：数据行 DML
+ */
+export type StmtAspect = 'column' | 'primary' | 'index' | 'table' | 'routine' | 'data';
+
 export interface SshConfig {
   enabled: boolean;
   host: string;
@@ -68,6 +82,10 @@ export interface DiffItem {
   changeType: ChangeType;
   /** 仅 objectType==='data' 时有值，对应独立 INSERT/DELETE/UPDATE 三 Tab。 */
   dml?: DmlType;
+  /** 语句维度：objectType==='data' 即 DML，其余 DDL（R1）。 */
+  stmtKind: StmtKind;
+  /** 语句切面（单语句条目恒 1 个，数组为以后多语句合并留余；R3）。 */
+  aspects: StmtAspect[];
   risk: RiskLevel;
   sql: string;
   rollback?: string;
@@ -165,6 +183,8 @@ export interface CompareStats {
   CREATE: number;
   DROP: number;
   CHANGE: number;
+  /** index 切面条数（R3/R4：与所见列表一致）。 */
+  INDEX: number;
   DML: DmlStats;
 }
 

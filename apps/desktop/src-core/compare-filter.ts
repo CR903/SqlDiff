@@ -5,7 +5,14 @@
 
 import type { DatabaseMetadata } from '../src-main/metadata';
 import { sortDiffItems } from './compare';
-import type { CompareResult, DataScope, DiffItem, ObjectType } from './types';
+import type {
+  CompareResult,
+  DataScope,
+  DiffItem,
+  ObjectType,
+  StmtAspect,
+  StmtKind,
+} from './types';
 
 export const ALL_SCOPES: ObjectType[] = ['table', 'view', 'procedure', 'function'];
 
@@ -40,17 +47,30 @@ export function recountStats(items: DiffItem[]): CompareResult['stats'] {
     CREATE: 0,
     DROP: 0,
     CHANGE: 0,
+    INDEX: 0,
     DML: { INSERT: 0, DELETE: 0, UPDATE: 0 },
   };
   for (const it of items) {
     stats[it.changeType] += 1;
+    if ((it.aspects ?? []).includes('index')) stats.INDEX += 1;
     if (it.dml) stats.DML[it.dml] += 1;
   }
   return stats;
 }
 
+/** R1/R3 维度过滤参数（与既有 CREATE/DROP/CHANGE Tab、DML 三 Tab 正交组合）。 */
+export type StmtKindFilter = 'ALL' | StmtKind;
+export type AspectFilter = 'ALL' | StmtAspect;
+
+export interface PostFilterOptions {
+  /** 一级维度：全部 / DDL（结构）/ DML（数据）。 */
+  stmtKind?: StmtKindFilter;
+  /** 语句切面（INDEX chip 等）：仅命中该切面的条目保留。 */
+  aspect?: AspectFilter;
+}
+
 /**
- * 后过滤（展示一致性兜底）：scopes + 表名子串（大小写不敏感）。
+ * 后过滤（展示一致性兜底）：scopes + 表名子串（大小写不敏感）+ 维度 + 切面。
  * tableFilter 只作用于 table 类型（与 fetchMetadata 一致），视图/例程不受影响；
  * 数据行（objectType:'data'）不受结构 scopes 裁剪（数据开关由 hasDataScope 控制），
  * 仅在有 tableFilter 时按表名/SQL 子串过滤，保证“复制=所见”不丢数。
@@ -59,10 +79,17 @@ export function postFilterResult(
   items: DiffItem[],
   scopes: ObjectType[],
   tableFilter?: string,
+  opts: PostFilterOptions = {},
 ): CompareResult {
   const on = new Set<string>(scopes);
   const kw = (tableFilter ?? '').trim().toLowerCase();
+  const stmtKind: StmtKindFilter = opts.stmtKind ?? 'ALL';
+  const aspect: AspectFilter = opts.aspect ?? 'ALL';
   const filtered = items.filter((it) => {
+    // 维度 + 切面（缺字段的老对象按 objectType 兜底，保证增量兼容）。
+    const kind: StmtKind = it.stmtKind ?? (it.objectType === 'data' ? 'DML' : 'DDL');
+    if (stmtKind !== 'ALL' && kind !== stmtKind) return false;
+    if (aspect !== 'ALL' && !(it.aspects ?? []).includes(aspect)) return false;
     if (it.objectType === 'data') {
       if (kw && !(it.objectName.toLowerCase().includes(kw) || it.sql.toLowerCase().includes(kw))) {
         return false;

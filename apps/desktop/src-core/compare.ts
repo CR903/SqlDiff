@@ -1,12 +1,13 @@
 // M4 组装层：DatabaseMetadata(A/B 快照) -> DiffItem[] + stats + 排序。
-// 表走 diffTable（多 ALTER 拼为单条目），视图/过程/函数走 diffProcedure。
+// 表走 diffTable 后按语句拆分为单语句条目（R2，每条独立 classify + risk + aspect）；
+// 视图/过程/函数保持原子（DELIMITER 包裹不拆，aspect=routine）。
 // changeType 经 classify 判定，risk/explain/rollback 经本地规则引擎填充。
-// 导出排序 DROP(0) -> CREATE(1) -> CHANGE(2)，同级按对象类型+对象名稳定排序。
+// 导出排序 DROP(0) -> CREATE(1) -> CHANGE(2)，同级按对象类型+对象名稳定排序（末级按 id，含 :s<n> 序号）。
 
 import type { DatabaseMetadata } from '../src-main/metadata';
 import type { ChangeType, CompareResult, CompareStats, DiffItem, ObjectType } from './types';
-import { classify } from './classify';
-import { diffProcedure, diffTable, type RoutineKind } from './diff';
+import { aspectOf, classify, stmtKindOf } from './classify';
+import { diffProcedure, diffTable, splitStatements, type RoutineKind } from './diff';
 import { assessRisk } from './risk';
 
 export interface CompareRunOptions {
@@ -29,19 +30,34 @@ function makeItem(
   objectType: ObjectType,
   objectName: string,
   sql: string,
+  suffix?: string,
 ): DiffItem {
   const changeType = classify(sql);
   const assessed = assessRisk(sql, objectName);
   return {
-    id: `${objectType}:${objectName}`,
+    id: suffix ? `${objectType}:${objectName}:${suffix}` : `${objectType}:${objectName}`,
     objectType,
     objectName,
     changeType,
+    stmtKind: stmtKindOf(objectType),
+    aspects: [aspectOf(sql, objectType === 'table' ? 'table' : 'routine')],
     risk: assessed.risk,
     sql,
     rollback: assessed.rollback,
     explain: assessed.explain,
   };
+}
+
+/**
+ * R2 单对象 SQL -> DiffItem[]：表先 splitStatements 拆单语句（每条独立
+ * classify + risk + aspect，id 后缀 `:s<n>` 保序）；例程原子（无后缀）。
+ */
+function makeItems(objectType: ObjectType, objectName: string, sql: string): DiffItem[] {
+  if (objectType !== 'table') return [makeItem(objectType, objectName, sql)];
+  const stmts = splitStatements(sql);
+  // 防御：拆分为空（理论上不可达，compareRun 只传非空 sql）则保留单条目，不丢数。
+  if (stmts.length === 0) return [makeItem(objectType, objectName, sql, 's0')];
+  return stmts.map((stmt, n) => makeItem(objectType, objectName, stmt, `s${n}`));
 }
 
 /** 是否“缺失”（map 无此键）；值为 null 表示 SHOW CREATE 失败，按约定跳过。 */
@@ -70,12 +86,15 @@ export function sortDiffItems(items: DiffItem[]): DiffItem[] {
     const o = OBJECT_ORDER[x.objectType] - OBJECT_ORDER[y.objectType];
     if (o !== 0) return o;
     if (x.dml && y.dml && x.dml !== y.dml) return DML_ORDER[x.dml] - DML_ORDER[y.dml];
-    return x.objectName.localeCompare(y.objectName);
+    const n = x.objectName.localeCompare(y.objectName);
+    if (n !== 0) return n;
+    // 末级按 id（含表语句 `:s<n>` 序号，numeric 保证 s2 < s10）：同表同组语句保原顺序。
+    return x.id.localeCompare(y.id, undefined, { numeric: true });
   });
 }
 
 function emptyStats(): CompareStats {
-  return { ALL: 0, CREATE: 0, DROP: 0, CHANGE: 0, DML: { INSERT: 0, DELETE: 0, UPDATE: 0 } };
+  return { ALL: 0, CREATE: 0, DROP: 0, CHANGE: 0, INDEX: 0, DML: { INSERT: 0, DELETE: 0, UPDATE: 0 } };
 }
 
 /**
@@ -95,7 +114,7 @@ export function compareRun(
     if (!pa.missing && pa.value == null) continue;
     if (!pb.missing && pb.value == null) continue;
     const sql = diffTable(name, pa.missing ? '' : (pa.value as string), pb.missing ? '' : (pb.value as string));
-    if (sql) items.push(makeItem('table', name, sql));
+    if (sql) items.push(...makeItems('table', name, sql));
   }
 
   const routineGroups: Array<{ mapA: Record<string, string | null>; mapB: Record<string, string | null>; kind: RoutineKind; objectType: ObjectType }> = [
@@ -116,7 +135,7 @@ export function compareRun(
         g.kind,
         opts.targetUser,
       );
-      if (sql) items.push(makeItem(g.objectType, name, sql));
+      if (sql) items.push(...makeItems(g.objectType, name, sql));
     }
   }
 
@@ -125,6 +144,7 @@ export function compareRun(
   stats.ALL = sorted.length;
   for (const it of sorted) {
     stats[it.changeType] += 1;
+    if (it.aspects.includes('index')) stats.INDEX += 1;
     if (it.dml) stats.DML[it.dml] += 1;
   }
   return { items: sorted, stats };

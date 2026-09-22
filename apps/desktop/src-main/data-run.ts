@@ -1,13 +1,14 @@
 // R3/R5 数据对比组装：按表跑 fetch + diff，组装 DiffItem（objectType:'data' + dml 三态）。
-// - 无主键表 -> skipped:'no-pk'（只给行数差异 + 加主键/整行 hash 建议），不中断。
-// - 联合主键两侧不一致 -> error:'pk-mismatch'，不中断。
+// - 无可用行身份（无 PK 且无全非空 UNIQUE）-> skipped:'no-pk'（只给行数差异 + 替代建议），不中断。
+// - 有 PK 用 PK；无 PK 但两侧有同一全非空 UNIQUE -> 按该列集分页拼 key 跑 diff（explain 追加来源），不中断。
+// - 两侧行身份不一致 -> error:'pk-mismatch'，不中断。
 // - 超阈未确认 -> confirm-needed（UI 二次确认后重跑），不中断。
 // - 拉取/比对异常 -> error，不中断；用户取消（ABORTED）则整体抛出。
 // 全程只读：仅 SELECT + SHOW CREATE，生成的 DML 不执行。
 
 import type { Pool } from 'mysql2/promise';
 import { diffDataRows } from '../src-core/data-diff';
-import { parseTablePK } from '../src-core/data-pk';
+import { qualifyIdentity } from '../src-core/data-pk';
 import type {
   ChangeType,
   DataTablePair,
@@ -76,6 +77,8 @@ function makeItem(pair: DataTablePair, dml: DmlType, index: number, sql: string)
     objectName: displayName(pair.a, pair.b),
     changeType: DML_CHANGE[dml],
     dml,
+    stmtKind: 'DML',
+    aspects: ['data'],
     risk: DML_RISK[dml],
     sql,
     explain: DML_EXPLAIN[dml],
@@ -102,6 +105,66 @@ function isAbortErr(err: unknown): boolean {
   );
 }
 
+/** 行身份标签（mismatch 报错用）：PK(id) / UNIQUE uk(email)。 */
+function identityLabel(kind: 'pk' | 'unique', cols: string[], name: string | null): string {
+  return kind === 'pk' ? `PK(${cols.join(',')})` : `UNIQUE${name ? ` ${name}` : ''}(${cols.join(',')})`;
+}
+
+export type IdentityDecision =
+  /** 可比：cols 为分页拼 key 列集；viaUnique=true 时 DiffItem explain 追加 UNIQUE 来源。 */
+  | { ok: true; cols: string[]; viaUnique: boolean; uniqueNote: string }
+  /** 跳过：message 已组装精确理由（含可空列点名），调用方记 skipped:'no-pk'。 */
+  | { ok: false; skipped: true; message: string }
+  /** 两侧行身份不一致：调用方记 error:'pk-mismatch'。 */
+  | { ok: false; skipped: false; message: string };
+
+/**
+ * 纯函数：两侧 DDL 行身份决策（R1 UNIQUE 等价，Q1=仅 NOT NULL）。
+ * - 优先 PK；无 PK 时两侧同一全非空 UNIQUE 等价为行身份；
+ * - 任一侧无资格 -> skipped（reason 点名可空列/无唯一键）；
+ * - 两侧列集不一致 -> mismatch。
+ */
+export function decideIdentity(
+  ddlA: string | null,
+  ddlB: string | null,
+  a: string,
+  b: string,
+): IdentityDecision {
+  const idA = qualifyIdentity(ddlA);
+  const idB = qualifyIdentity(ddlB);
+  if (idA.kind === 'none' || idB.kind === 'none') {
+    const missing = [
+      idA.kind === 'none' ? `A.${a}（${idA.reason}）` : null,
+      idB.kind === 'none' ? `B.${b}（${idB.reason}）` : null,
+    ]
+      .filter((x): x is string => x !== null)
+      .join('、');
+    return {
+      ok: false,
+      skipped: true,
+      message:
+        `${missing}：无可用行身份，已跳过行级 diff。` +
+        `替代策略：加主键（或全列 NOT NULL 的 UNIQUE 键）后重跑，或按整行 hash 抽样核对。`,
+    };
+  }
+  if (idA.cols.join('\0') !== idB.cols.join('\0')) {
+    const labelA = identityLabel(idA.kind, idA.cols, idA.kind === 'unique' ? idA.name : null);
+    const labelB = identityLabel(idB.kind, idB.cols, idB.kind === 'unique' ? idB.name : null);
+    return {
+      ok: false,
+      skipped: false,
+      message: `两侧行身份不一致（A: ${labelA} vs B: ${labelB}），无法按键比对`,
+    };
+  }
+  const viaUnique = idA.kind === 'unique' || idB.kind === 'unique';
+  return {
+    ok: true,
+    cols: idA.cols,
+    viaUnique,
+    uniqueNote: viaUnique ? `按UNIQUE(${idA.cols.join(',')})比对` : '',
+  };
+}
+
 /** 单表跑 fetch + diff（抛 ABORTED 外的异常由调用方记 error）。 */
 async function runSingleTable(
   dbA: DbQueryable,
@@ -118,42 +181,36 @@ async function runSingleTable(
     ddlOf(dbA, opts.ddlCacheA, pair.a),
     ddlOf(dbB, opts.ddlCacheB, pair.b),
   ]);
-  const pkA = parseTablePK(ddlA);
-  const pkB = parseTablePK(ddlB);
-  if (!pkA || !pkB) {
-    // R1：无主键/无唯一键表 -> 跳过行级 diff，只给行数差异 + 替代策略建议。
+  const decision = decideIdentity(ddlA, ddlB, pair.a, pair.b);
+  if (!decision.ok && decision.skipped) {
+    // R1：无可用行身份（无 PK、无全非空 UNIQUE、可空 UNIQUE）-> 跳过行级 diff，只给行数差异。
     const [countA, countB] = await Promise.all([
       getRowCount(dbA, pair.a).catch(() => undefined),
       getRowCount(dbB, pair.b).catch(() => undefined),
     ]);
-    const missing = [!pkA ? `A.${pair.a}` : null, !pkB ? `B.${pair.b}` : null]
-      .filter(Boolean)
-      .join('、');
     const status: DataTableStatus = {
       ...base,
       status: 'skipped',
       reason: 'no-pk',
-      message:
-        `${missing} 无主键（SHOW CREATE 无 PRIMARY KEY）：已跳过行级 diff。` +
-        `替代策略：加主键后重跑，或按整行 hash 抽样核对。`,
+      message: decision.message,
       ...(countA !== undefined ? { countA } : {}),
       ...(countB !== undefined ? { countB } : {}),
     };
     emit(status);
     return { items, status };
   }
-  if (pkA.join('\0') !== pkB.join('\0')) {
+  if (!decision.ok) {
     const status: DataTableStatus = {
       ...base,
       status: 'error',
       reason: 'pk-mismatch',
-      message: `两侧主键不一致（A: ${pkA.join(',')} vs B: ${pkB.join(',')}），无法按键比对`,
+      message: decision.message,
     };
     emit(status);
     return { items, status };
   }
 
-  const pk = pkA;
+  const pk = decision.cols;
   const [rowsA, rowsB] = await Promise.all([
     fetchAllByPK(dbA, pair.a, pk, {
       batch: opts.batchRows,
@@ -174,6 +231,10 @@ async function runSingleTable(
   diff.inserts.forEach((sql, i) => items.push(makeItem(pair, 'INSERT', i, sql)));
   diff.deletes.forEach((sql, i) => items.push(makeItem(pair, 'DELETE', i, sql)));
   diff.updates.forEach((sql, i) => items.push(makeItem(pair, 'UPDATE', i, sql)));
+  if (decision.viaUnique) {
+    // UNIQUE 等价行身份：DiffItem 备注来源（只读备注，不改变 DML 语义）。
+    for (const it of items) it.explain = `${it.explain}；${decision.uniqueNote}`;
+  }
   const status: DataTableStatus = {
     ...base,
     status: 'done',

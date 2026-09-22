@@ -10,6 +10,8 @@ describe('M1 skeleton', () => {
       objectType: 'table',
       objectName: 'users',
       changeType: 'CREATE',
+      stmtKind: 'DDL',
+      aspects: ['table'],
       risk: 'low',
       sql: 'SELECT 1;',
     };

@@ -7,12 +7,13 @@
 // - 无主键表由调用方（data-run）判 skip，本层 fetchPageByPK 要求 pk 非空（空则抛错，早失败）。
 
 import type { DataRow } from '../src-core/data-diff';
+import { DEFAULT_BATCH_ROWS, DEFAULT_ROW_THRESHOLD } from '../src-core/data-options';
 import { escapeIdent, rowsOf, type DbQueryable } from './metadata';
 
-/** 默认分页批量（R2：默认 1000，可配置）。 */
-export const DEFAULT_BATCH_ROWS = 1000;
-/** 默认单表行数阈值（R5：默认 10 万，超限需二次确认）。 */
-export const DEFAULT_ROW_THRESHOLD = 100_000;
+/** 默认分页批量（R2：默认 1000，可配置；正典见 src-core/data-options）。 */
+export { DEFAULT_BATCH_ROWS };
+/** 默认单表行数阈值（R5：默认 10 万，超限需二次确认；正典见 src-core/data-options）。 */
+export { DEFAULT_ROW_THRESHOLD };
 
 /** 超阈错误（本层抛，调用方捕获后记 confirm-needed，由 UI 二次确认后重跑）。 */
 export class DataThresholdError extends Error {

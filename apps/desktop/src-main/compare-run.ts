@@ -112,6 +112,7 @@ export async function runCompareRequest(
       result.stats.ALL += data.items.length;
       for (const it of data.items) {
         result.stats[it.changeType] += 1;
+        if ((it.aspects ?? []).includes('index')) result.stats.INDEX += 1;
         if (it.dml) result.stats.DML[it.dml] += 1;
       }
       result.dataTables = data.tables;

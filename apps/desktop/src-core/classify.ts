@@ -8,7 +8,7 @@
 // - 含 CREATE 且无 DROP 归 CREATE；
 // - 其余（ALTER / CHANGE / ADD 等）归 CHANGE。
 
-import type { ChangeType } from './types';
+import type { ChangeType, ObjectType, StmtAspect, StmtKind } from './types';
 
 const RE_DROP = /\bDROP\s+(TABLE|PROCEDURE|FUNCTION|VIEW|INDEX|COLUMN|PRIMARY)\b/i;
 const RE_CREATE = /\bCREATE\b/i;
@@ -24,4 +24,30 @@ export function classify(sql: string): ChangeType {
   if (RE_CREATE_OR_REPLACE.test(text)) return 'CHANGE';
   if (hasCreate) return 'CREATE';
   return 'CHANGE';
+}
+
+const RE_ASPECT_PRIMARY = /\bPRIMARY\s+KEY\b/i;
+const RE_ASPECT_INDEX_ADD = /\bADD\s+(UNIQUE\s+|FULLTEXT\s+|SPATIAL\s+)?(INDEX|KEY)\b/i;
+const RE_ASPECT_INDEX_DROP = /\bDROP\s+(INDEX|KEY)\b/i;
+const RE_ASPECT_COLUMN = /\b(ADD|DROP|CHANGE|MODIFY)\s+COLUMN\b/i;
+const RE_ASPECT_TABLE = /\b(CREATE|DROP)\s+TABLE\b/i;
+
+/** 对象类型 -> 语句维度：数据行 DML，其余 DDL。 */
+export function stmtKindOf(objectType: ObjectType | 'data'): StmtKind {
+  return objectType === 'data' ? 'DML' : 'DDL';
+}
+
+/**
+ * R3 单语句切面判定（Q1：PRIMARY KEY 增删归 primary 不归 index；UNIQUE 归 index）。
+ * 顺序：先整表（CREATE TABLE 体内含 PRIMARY KEY，不能先判 primary），
+ * 再 primary（DROP+ADD PRIMARY KEY 合写单条仍归 primary），再 index / column。
+ * `fallback` 给正则覆盖不到的语句（表内杂项 -> 'table'，例程 -> 'routine'，数据 -> 'data'）。
+ */
+export function aspectOf(stmt: string, fallback: StmtAspect = 'table'): StmtAspect {
+  const text = stmt ?? '';
+  if (RE_ASPECT_TABLE.test(text)) return 'table';
+  if (RE_ASPECT_PRIMARY.test(text)) return 'primary';
+  if (RE_ASPECT_INDEX_ADD.test(text) || RE_ASPECT_INDEX_DROP.test(text)) return 'index';
+  if (RE_ASPECT_COLUMN.test(text)) return 'column';
+  return fallback;
 }
