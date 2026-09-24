@@ -26,6 +26,11 @@ import { Vault, parseLegacyConnectionString, type SafeStorageLike } from './vaul
 import { closeAll, createMysqlPool, testConnection } from './connection';
 import { registerWillDownload } from './download';
 import { listTables } from './metadata';
+import {
+  createDBeaverExportResult,
+  resolveDBeaverNodes,
+  type DBeaverExportResult,
+} from './converters/dbeaver';
 
 // M2：vault（safeStorage + OS 钥匙串 / AES-GCM 回退）+ nodes.json / history.json 接线。
 // M3：mysql2/promise + ssh2 单跳隧道池；nodes.test 走 vault 取密钥后调 testConnection，
@@ -208,6 +213,12 @@ function registerNodesIpc(): void {
     return vault.exportEncrypted(
       nodes.map((meta) => ({ meta, secret: vault.getNodeSecret(meta.id) ?? {} })),
     );
+  });
+
+  ipcMain.handle('nodes.export-dbeaver', (_event, ids: unknown): DBeaverExportResult => {
+    // DBeaver 兼容导出只读取 NodeMeta；此路径不接触 Vault，也不会接收 SecretBundle。
+    const selected = resolveDBeaverNodes(loadNodes(getContext().userDataDir), ids);
+    return createDBeaverExportResult(selected);
   });
 
   ipcMain.handle('nodes.import', (_event, doc: ExportJSON): NodesImportResult => {

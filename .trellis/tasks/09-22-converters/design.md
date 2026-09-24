@@ -14,34 +14,34 @@ NodeLibrary export button
   -> Zustand exportDbeaver(ids)
   -> preload SqlDiffApi.nodes.exportDbeaver(ids)
   -> main nodes.export-dbeaver handler
-  -> loadNodes(userDataDir) + buildDBeaverDocument(selected)
+  -> resolveDBeaverNodes(loadNodes(userDataDir), ids) + createDBeaverExportResult(selected)
   -> DBeaverExportResult { fileName, content, exportedCount, warnings }
-  -> renderer downloadTextFile(...)
+  -> renderer downloadJsonFile(result.fileName, result.content)
 ```
 
 No Vault read occurs on this path. The handler returns topology only; it must not accept or return a `SecretBundle`.
 
 ## Main-Process Module
 
-Add `src-main/converters/dbeaver.ts` with a typed document builder and result types. The builder accepts already-validated `NodeMeta[]` and returns the JSON document plus warnings. Keep the driver/provider constants in this module.
+Add `src-main/converters/dbeaver.ts` with a typed document builder and result types. The builder accepts `readonly NodeMeta[]` and defensively validates the node shape before returning the JSON document plus warnings. Keep the driver/provider constants in this module.
 
 Suggested public shape:
 
 ```ts
 interface DBeaverExportResult {
-  fileName: string;
+  fileName: 'data-sources-sqldiff.json';
   content: string;
   exportedCount: number;
   warnings: string[];
 }
 
-function buildDBeaverDocument(nodes: NodeMeta[]): {
+function buildDBeaverDocument(nodes: readonly NodeMeta[]): {
   document: DBeaverDataSources;
   warnings: string[];
 }
 ```
 
-The JSON must use `folders: {}`, `connections` keyed by a deterministic id derived from the SqlDiff node id, and `connection-types: {}`. Each connection contains provider/driver/name/save-password/configuration. `configuration` uses MANUAL host/port/database and native auth username. SSH uses the documented `handlers.ssh_tunnel` shape. `save-password` is false; no secret fields are emitted. For private-key auth, omit `keyPath` because SqlDiff stores key material, not a trustworthy path, and add a warning.
+The JSON must use `folders: {}`, `connections` keyed by a deterministic id derived from the SqlDiff node id, and `connection-types: {}`. Each connection contains provider/driver/name/save-password/configuration. `configuration` uses MANUAL host/port/database and native auth username. SSH uses the documented `handlers.ssh_tunnel` shape. `save-password` is false; no secret values or secret-bearing fields are emitted. For private-key auth, omit `keyPath` and `keyValue` because SqlDiff stores key material, not a trustworthy path, and add a warning.
 
 The handler should reject an empty selection and unknown ids with a domain-prefixed Chinese error. It should return no file content for an empty result. Tests should call the pure builder for format assertions and the handler boundary for validation where practical.
 
@@ -55,14 +55,14 @@ The modal is presentation/local state; do not put selected ids in Zustand. The s
 
 ## Compatibility and Rollback
 
-- Existing custom encrypted JSON export/import and legacy connection-string import remain unchanged.
+- Existing custom encrypted JSON export/import semantics and legacy connection-string import remain unchanged; the shared Blob helper now gives the custom JSON export an `application/json` MIME type.
 - Existing `NodeConverter` stub remains available for a future reverse-import task.
-- DBeaver output is additive; deleting the new module, IPC method, and button restores the previous behavior.
+- DBeaver output is additive; removing the new module, IPC method, button, and JSON-helper wrapper restores the previous behavior (the existing `downloadSqlFile` helper remains available).
 - If driver ID verification fails in a real installation, change one documented constant and regenerate the JSON; do not add format fallbacks that emit guessed fields.
 
 ## Tests
 
 - Pure builder: direct, password SSH, private-key SSH, multiple nodes, deterministic ids, no-secret assertions, warning behavior.
-- IPC/store boundary: empty/unknown ids and sanitized error propagation.
+- Boundary: `resolveDBeaverNodes` unit tests cover empty/unknown/duplicate/illegal ids; the thin main handler delegates to those functions, while the CDP pass covers the store/renderer IPC success path. `sanitizeIpcError` remains covered by the existing helper tests.
 - CDP: open modal, select nodes, trusted export click, verify downloaded file exists and equals returned JSON, inspect no secret fields.
 - Full gate: `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`.

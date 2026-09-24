@@ -9,7 +9,7 @@
 | Durable main-process data | `nodes`, `history`, refreshed by `refreshNodes` and `refreshHistory` |
 | Cross-component workflow | `slotA`, `slotB`, `scopes`, `tableFilter`, `includeData`, `dataPairs`, `dataStatus`, comparison options |
 | Result and view state | `items`, `selectedId`, `diffFilter`, object/aspect/verb filters, `comparing`, progress, toast |
-| Renderer-only UI state | `nodeModal`, `testingId`, and per-card latency live in `App`; form strings live in `NodeModal`; add-row table drafts live in `DataSection`, while saved pair selections live in the store |
+| Renderer-only UI state | `nodeModal`, `dbeaverExportOpen`, `testingId`, and per-card latency live in `App`; form strings live in `NodeModal`; DBeaver selected ids live in `DBeaverExportModal`; add-row table drafts live in `DataSection`, while saved pair selections live in the store |
 | Derived state | `visibleNodes(...)`, App's `byKw/byObj/byAspect/tabItems`, counts, selected SQL, and highlighted HTML |
 
 Do not promote modal fields, input drafts, or memo results into Zustand. Promote a value only when multiple regions need the same workflow state or it must survive component replacement.

@@ -98,9 +98,9 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** Blob 下载 .sql 文件（渲染进程直做，不经主进程，离线可用）。 */
-export function downloadSqlFile(filename: string, text: string): void {
-  const blob = new Blob([text], { type: 'text/sql;charset=utf-8' });
+/** Blob 文本下载（仍由主进程 will-download 策略决定最终保存路径）。 */
+export function downloadTextFile(filename: string, text: string, mimeType: string): void {
+  const blob = new Blob([text], { type: mimeType });
   const url = URL.createObjectURL(blob);
   try {
     const a = document.createElement('a');
@@ -112,4 +112,14 @@ export function downloadSqlFile(filename: string, text: string): void {
   } finally {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+}
+
+/** Blob 下载 .sql 文件（渲染进程直做，不经主进程，离线可用）。 */
+export function downloadSqlFile(filename: string, text: string): void {
+  downloadTextFile(filename, text, 'text/sql;charset=utf-8');
+}
+
+/** Blob 下载 JSON 文件，复用同一条可信下载路径。 */
+export function downloadJsonFile(filename: string, text: string): void {
+  downloadTextFile(filename, text, 'application/json;charset=utf-8');
 }

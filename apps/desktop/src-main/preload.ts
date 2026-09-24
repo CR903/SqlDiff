@@ -9,6 +9,9 @@ import type {
   SecretBundle,
   SshConfig,
 } from '../src-core/types';
+import type { DBeaverExportResult } from './converters/dbeaver';
+
+export type { DBeaverExportResult } from './converters/dbeaver';
 
 // M2：nodes CRUD / test / export / import / 老串导入 + history 接 vault。
 // M3：conn.test / nodes.test 接真实 mysql2/ssh2（含延迟 ms），见 ./connection。
@@ -70,6 +73,8 @@ export interface SqlDiffApi {
     /** M2 占位：存在性校验通过后返回 NOT_IMPLEMENTED，M3 接真实测试。 */
     test: (id: string) => Promise<ConnTestResult>;
     export: () => Promise<ExportJSON>;
+    /** 仅导出节点拓扑到 DBeaver data-sources JSON，不读取或返回秘密。 */
+    exportDbeaver: (ids: string[]) => Promise<DBeaverExportResult>;
     import: (doc: ExportJSON) => Promise<NodesImportResult>;
     /** 老 CLI 连接串一键解析导入（兼容 Tools.js:10-31）。 */
     importLegacy: (connStr: string, alias?: string) => Promise<NodeMeta>;
@@ -108,6 +113,8 @@ const api: SqlDiffApi = {
     remove: (id: string) => ipcRenderer.invoke('nodes.delete', id) as Promise<boolean>,
     test: (id: string) => ipcRenderer.invoke('nodes.test', id) as Promise<ConnTestResult>,
     export: () => ipcRenderer.invoke('nodes.export') as Promise<ExportJSON>,
+    exportDbeaver: (ids: string[]) =>
+      ipcRenderer.invoke('nodes.export-dbeaver', ids) as Promise<DBeaverExportResult>,
     import: (doc: ExportJSON) => ipcRenderer.invoke('nodes.import', doc) as Promise<NodesImportResult>,
     importLegacy: (connStr: string, alias?: string) =>
       ipcRenderer.invoke('nodes.import-legacy', connStr, alias) as Promise<NodeMeta>,

@@ -3,3 +3,4 @@
 {"file": ".trellis/spec/frontend/index.md", "reason": "renderer、Zustand、下载和 CDP UI 约束"}
 {"file": ".trellis/spec/frontend/state-management.md", "reason": "共享状态与局部选择状态放置规则"}
 {"file": ".trellis/tasks/09-22-converters/research/dbeaver-connection-import.md", "reason": "DBeaver JSON、SSH handler、导入和安全事实"}
+{"file": ".trellis/spec/backend/dbeaver-export.md", "reason": "实现时遵守 DBeaver 导出签名、确定性、秘密边界和错误前缀"}

@@ -56,7 +56,8 @@ Minimum scenarios for affected flows:
 - DROP confirmation, clipboard, and zero-item behavior;
 - Blob export and `will-download` file existence/content;
 - real read-only compare with a Docker MySQL fixture when the target database is unavailable; keep credentials out of task files and pass `--default-character-set=utf8mb4` when seeding Chinese data through the MySQL CLI;
-- Cmd/Ctrl+Enter, swap/clear, and search smoke checks.
+- Cmd/Ctrl+Enter, swap/clear, and search smoke checks;
+- DBeaver export: node selection, all/none, warning visibility, JSON download, and no-secret inspection per the [DBeaver Export Contract](../backend/dbeaver-export.md).
 
 Record executed assertions, screenshots, environment limits, and any waived checks in the active task report. Do not turn a Docker fixture result into a claim about an unavailable private database, and do not claim Windows native validation from a macOS cross-build.
 

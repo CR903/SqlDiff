@@ -2,7 +2,7 @@
 
 ## Current Component Pattern
 
-Components are local function components in `src-renderer/App.tsx`; there is no `React.FC`, component class, or imported component library. `monaco-editor` is installed but intentionally not imported: the current SQL view is a highlighted `<pre>`. `App` is the composition root. Most child components are presentation components that receive values and callbacks through props. `NodeModal` is the current exception that selects `saveNode` and `testDraft` directly from Zustand because it owns the form workflow.
+Components are local function components in `src-renderer/App.tsx`; there is no `React.FC`, component class, or imported component library. `monaco-editor` is installed but intentionally not imported: the current SQL view is a highlighted `<pre>`. `App` is the composition root. Most child components are presentation components that receive values and callbacks through props. `NodeModal` and `DBeaverExportModal` are workflow-owning exceptions: the former selects `saveNode` and `testDraft` for its form workflow, while the latter selects `exportDbeaver` for its selection/export workflow.
 
 The three primary regions are stable product concepts:
 
@@ -20,7 +20,7 @@ The three primary regions are stable product concepts:
 
 ## State and Derived Rendering
 
-- Keep transient input state local: `NodeModal` owns its form strings and test/save flags; `DataSection` owns the add-row A/B draft selects while existing pair selections remain in the store; `DataOptionsInputs` owns string drafts and syncs normalized numeric values from props.
+- Keep transient input state local: `NodeModal` owns its form strings and test/save flags; `DBeaverExportModal` owns selected ids plus exporting/error state; `DataSection` owns the add-row A/B draft selects while existing pair selections remain in the store; `DataOptionsInputs` owns string drafts and syncs normalized numeric values from props.
 - Use `useMemo` for expensive or identity-sensitive derivations. `App` builds the keyword/object/aspect/verb chain in separate memo stages so counts have a clear base. `SqlPreview` memoizes export text and highlighted HTML.
 - Do not store `tabItems`, SQL preview HTML, or filter counts back into Zustand. They are derived from `items` and filter state in `App`.
 
@@ -33,7 +33,7 @@ The three primary regions are stable product concepts:
 
 ## Accessibility Baseline
 
-The current code uses native `<button>`, `<input>`, `<select>`, `<textarea>`, and `<label>` elements, disables actions while busy, and gives the progress bar and modal basic ARIA metadata (`CompareSlots` and `NodeModal`). Preserve these semantics and visible labels when changing markup.
+The current code uses native `<button>`, `<input>`, `<select>`, `<textarea>`, and `<label>` elements, disables actions while busy, and gives the progress bar and modal basic ARIA metadata (`CompareSlots`, `NodeModal`, and `DBeaverExportModal`). Preserve these semantics and visible labels when changing markup.
 
 Accessibility is not fully solved: clickable `NodeCard`/`Slot` containers and diff table rows are not keyboard-operable, tabs/chips do not expose pressed state, and `NodeModal` is not focus-trapped. There is no accessibility lint or automated a11y suite. Treat these as known gaps rather than claiming WCAG conformance; changes that touch an interactive element should not make keyboard or label behavior worse and should include a manual/CDP check.
 

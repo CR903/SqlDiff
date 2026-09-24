@@ -19,7 +19,7 @@ apps/desktop/
 └── src-main/preload.ts                # typed contextBridge API and renderer-facing inputs
 ```
 
-There is intentionally no `pages/`, `routes/`, `components/`, `hooks/`, or CSS-module tree. The current UI is small enough that named components live together in `src-renderer/App.tsx`: `NodeLibrary`, `NodeCard`, `HistoryRow`, `Slot`, `CompareSlots`, `DiffTable`, `DataOptionsInputs`, `DataSection`, `SqlPreview`, and `NodeModal`.
+There is intentionally no `pages/`, `routes/`, `components/`, `hooks/`, or CSS-module tree. The current UI is small enough that named components live together in `src-renderer/App.tsx`: `NodeLibrary`, `NodeCard`, `HistoryRow`, `Slot`, `CompareSlots`, `DiffTable`, `DataOptionsInputs`, `DataSection`, `SqlPreview`, `DBeaverExportModal`, and `NodeModal`.
 
 ## Placement Rules
 

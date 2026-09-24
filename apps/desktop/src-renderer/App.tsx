@@ -4,8 +4,14 @@ import type { DataTableStatus, DiffItem, HistoryEntry, NodeMeta, ObjectType, Obj
 import { sanitizeIpcError } from '../src-core/ipc-error';
 import { verbOf } from '../src-core/classify';
 import { visibleNodes } from './node-filter';
-import type { DataTableLists, NodeCreateInput } from '../src-main/preload';
-import { buildExportText, copyText, downloadSqlFile, highlightSql } from './sql';
+import type { DataTableLists, DBeaverExportResult, NodeCreateInput } from '../src-main/preload';
+import {
+  buildExportText,
+  copyText,
+  downloadJsonFile,
+  downloadSqlFile,
+  highlightSql,
+} from './sql';
 
 // M5 正式 UI 三栏联调：左 NodeLibrary / 中 CompareSlots + DiffTable / 右 SqlPreview。
 // 交互参考 apps/desktop-mock/index.html；数据经 store 接 IPC（window.sqldiff），
@@ -203,6 +209,7 @@ function NodeLibrary({
   onRemoveNode,
   onTestNode,
   onExport,
+  onExportDbeaver,
   onImportFile,
   onImportLegacy,
 }: {
@@ -223,6 +230,7 @@ function NodeLibrary({
   onRemoveNode: (id: string) => void;
   onTestNode: (id: string) => void;
   onExport: () => void;
+  onExportDbeaver: () => void;
   onImportFile: (file: File) => void;
   onImportLegacy: () => void;
 }) {
@@ -243,6 +251,14 @@ function NodeLibrary({
       <div className="lib-tools">
         <button className="link-btn" title="一键导出全部节点 JSON（密码加密，无明文）" onClick={onExport}>
           导出
+        </button>
+        <button
+          className="link-btn"
+          title="选择节点并导出为 DBeaver data-sources JSON（不迁移秘密）"
+          disabled={nodesLoading || nodes.length === 0}
+          onClick={onExportDbeaver}
+        >
+          DBeaver
         </button>
         <button
           className="link-btn"
@@ -960,6 +976,128 @@ function SqlPreview({
 }
 
 // ---------------------------------------------------------------------------
+// DBeaver 兼容导出：节点选择 + 无秘密迁移提示
+// ---------------------------------------------------------------------------
+
+function DBeaverExportModal({
+  nodes,
+  onClose,
+  onExported,
+}: {
+  nodes: NodeMeta[];
+  onClose: () => void;
+  onExported: (result: DBeaverExportResult) => void;
+}) {
+  const exportDbeaver = useDesktopStore((s) => s.exportDbeaver);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(nodes.map((node) => node.id)));
+  const [exporting, setExporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const selectedCount = selectedIds.size;
+
+  const toggleNode = (id: string): void => {
+    setError(null);
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = (): void => {
+    setError(null);
+    setSelectedIds(new Set(nodes.map((node) => node.id)));
+  };
+
+  const selectNone = (): void => {
+    setError(null);
+    setSelectedIds(new Set());
+  };
+
+  const handleExport = async (): Promise<void> => {
+    if (selectedCount === 0) {
+      setError('请至少选择一个节点');
+      return;
+    }
+    setExporting(true);
+    setError(null);
+    try {
+      const result = await exportDbeaver([...selectedIds]);
+      downloadJsonFile(result.fileName, result.content);
+      setExporting(false);
+      onExported(result);
+      onClose();
+    } catch (e) {
+      setExporting(false);
+      setError(sanitizeIpcError(e));
+    }
+  };
+
+  return (
+    <div
+      className="modal-mask"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !exporting) onClose();
+      }}
+    >
+      <div className="modal" role="dialog" aria-label="导出到 DBeaver">
+        <div className="modal-title">导出到 DBeaver</div>
+        <div className="dbeaver-export-warning">
+          不会迁移密码/私钥，导入后需重新输入。私钥认证节点还需在 DBeaver 中重新选择密钥。
+        </div>
+        <div className="dbeaver-select-actions">
+          <span>已选 {selectedCount} / {nodes.length}</span>
+          <span className="dbeaver-select-buttons">
+            <button className="mini-btn" disabled={exporting || nodes.length === 0} onClick={selectAll}>
+              全选
+            </button>
+            <button className="mini-btn" disabled={exporting || selectedCount === 0} onClick={selectNone}>
+              全不选
+            </button>
+          </span>
+        </div>
+        <div className="dbeaver-node-list">
+          {nodes.map((node) => (
+            <label className="dbeaver-node-option" key={node.id}>
+              <input
+                type="checkbox"
+                checked={selectedIds.has(node.id)}
+                disabled={exporting}
+                onChange={() => toggleNode(node.id)}
+              />
+              <span className="dbeaver-node-main">
+                <span>{node.alias}</span>
+                <span className="mono">{node.host}:{node.port} / {node.database}</span>
+              </span>
+              {node.ssh.enabled && node.ssh.authType === 'privateKey' && (
+                <span className="dbeaver-node-warning">待补 SSH 私钥</span>
+              )}
+            </label>
+          ))}
+          {nodes.length === 0 && <div className="empty">暂无可导出的节点</div>}
+        </div>
+        {error && <div className="form-err">{error}</div>}
+        <div className="modal-actions">
+          <span className="form-hint">文件：data-sources-sqldiff.json</span>
+          <span className="modal-actions-right">
+            <button className="btn btn-ghost" disabled={exporting} onClick={onClose}>
+              取消
+            </button>
+            <button
+              className="btn btn-primary"
+              disabled={exporting || selectedCount === 0}
+              onClick={() => void handleExport()}
+            >
+              {exporting ? '导出中…' : `导出 ${selectedCount} 个节点`}
+            </button>
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 节点表单：新增 / 编辑（R1 全字段）+ 免保存测试连接
 // ---------------------------------------------------------------------------
 
@@ -1303,8 +1441,9 @@ export default function App() {
   const importDoc = useDesktopStore((s) => s.importDoc);
   const importLegacy = useDesktopStore((s) => s.importLegacy);
 
-  // 节点管理本地状态：表单 Modal + 单卡测试延迟。
+  // 节点管理本地状态：表单 Modal + DBeaver 选择 Modal + 单卡测试延迟。
   const [nodeModal, setNodeModal] = useState<{ editingId: string | null } | null>(null);
+  const [dbeaverExportOpen, setDbeaverExportOpen] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [latencies, setLatencies] = useState<Record<string, number>>({});
 
@@ -1466,10 +1605,17 @@ export default function App() {
   const handleExport = (): void => {
     void exportDoc()
       .then((doc) => {
-        downloadSqlFile(`sqldiff_nodes_${Date.now()}.json`, JSON.stringify(doc, null, 2));
+        downloadJsonFile(`sqldiff_nodes_${Date.now()}.json`, JSON.stringify(doc, null, 2));
         setToast(`已导出 ${doc.nodes.length} 个节点（密码已加密，无明文）`);
       })
       .catch((e: unknown) => setToast(sanitizeIpcError(e)));
+  };
+
+  const handleDbeaverExported = (result: DBeaverExportResult): void => {
+    const warning = result.warnings[0]
+      ? `；${result.warnings.length} 条 SSH 密钥待补：${result.warnings[0]}`
+      : '';
+    setToast(`已生成 DBeaver 配置（${result.exportedCount} 个节点，未迁移密码/私钥）${warning}`);
   };
 
   const handleImportFile = (file: File): void => {
@@ -1523,6 +1669,7 @@ export default function App() {
           onRemoveNode={handleRemoveNode}
           onTestNode={handleTestNode}
           onExport={handleExport}
+          onExportDbeaver={() => setDbeaverExportOpen(true)}
           onImportFile={handleImportFile}
           onImportLegacy={handleImportLegacy}
         />
@@ -1613,6 +1760,13 @@ export default function App() {
       </main>
 
       <footer className="statusbar">{status}</footer>
+      {dbeaverExportOpen && (
+        <DBeaverExportModal
+          nodes={nodes}
+          onClose={() => setDbeaverExportOpen(false)}
+          onExported={handleDbeaverExported}
+        />
+      )}
       {nodeModal && (
         <NodeModal
           editing={nodeModal.editingId ? (nodes.find((n) => n.id === nodeModal.editingId) ?? null) : null}

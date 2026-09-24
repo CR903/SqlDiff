@@ -108,7 +108,7 @@ export interface ExportNodeEntry {
   secretsEnc: SecretsEnc;
 }
 
-/** 一键导出全部节点的自定义 JSON；`converters/` 预留二期 DBeaver/DataGrip 兼容。 */
+/** 一键导出全部节点的自定义 JSON；DBeaver topology-only export lives in `src-main/converters/dbeaver.ts`. */
 export interface ExportJSON {
   version: 1;
   exportedAt: string;

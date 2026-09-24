@@ -17,7 +17,7 @@ apps/desktop/
 │   ├── data-run.ts           # per-table data comparison orchestration
 │   ├── compare-run.ts        # A/B compare orchestration and history
 │   ├── download.ts           # will-download save-path policy
-│   └── converters/           # future third-party node importers
+│   └── converters/           # DBeaver exporter + future third-party importers
 ├── src-core/                 # deterministic comparison/filter/risk logic
 │   ├── types.ts              # cross-process domain contracts
 │   ├── diff.ts               # ported structural diff semantics
@@ -38,7 +38,7 @@ apps/desktop/
 - `src-main/metadata.ts`, `data-fetch.ts`, and the `connection.ts` ping helpers own read-only SQL execution. Comparison policy belongs in `src-core` or the run orchestrators, not in SQL string construction.
 - `src-core` owns deterministic logic shared by main and renderer. `src-core/compare-filter.ts` explicitly exists so renderer filtering does not pull in `node:crypto`, `mysql2`, or `ssh2`; follow that dependency rule for new shared helpers.
 - `src-core/types.ts` is the normal source of truth for domain types. `DatabaseMetadata` currently lives in `src-main/metadata.ts`, so consumers in `compare.ts`, `compare-filter.ts`, and `demo.ts` use `import type`; do not turn that into a runtime import.
-- `src-main/converters/index.ts` defines the future `NodeConverter` seam. A converter returns metadata plus an in-memory secret; persistence remains with `Vault` and `store-json.ts`.
+- `src-main/converters/dbeaver.ts` is the current SqlDiff → DBeaver topology exporter; `dbeaver.test.ts` is its focused regression. See the [DBeaver Export Contract](./dbeaver-export.md). `src-main/converters/index.ts` remains the future third-party → SqlDiff `NodeConverter` seam, which is a different direction and must not be used for export.
 
 ## Reference-Only Areas
 

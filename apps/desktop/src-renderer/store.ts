@@ -28,7 +28,12 @@ import {
   normalizeInsertBatch,
   normalizeRowThreshold,
 } from '../src-core/data-options';
-import type { DataTableLists, NodeCreateInput, SqlDiffApi } from '../src-main/preload';
+import type {
+  DataTableLists,
+  DBeaverExportResult,
+  NodeCreateInput,
+  SqlDiffApi,
+} from '../src-main/preload';
 import { runDemoCompare } from './demo';
 
 export type LeftTab = 'all' | 'hist' | 'mine' | 'fav';
@@ -218,6 +223,7 @@ interface DesktopState {
   /** 表单免保存测试：直收 {node, secret} 走 conn.test，不写 vault。 */
   testDraft: (node: NodeMeta, secret?: SecretBundle) => Promise<ConnTestResult>;
   exportDoc: () => Promise<ExportJSON>;
+  exportDbeaver: (ids: string[]) => Promise<DBeaverExportResult>;
   importDoc: (doc: ExportJSON) => Promise<number>;
   importLegacy: (connStr: string, alias?: string) => Promise<NodeMeta>;
 }
@@ -482,6 +488,16 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
     const api = getIpc();
     if (!api) throw new Error('当前为预览模式（无主进程），请在 Electron 中运行以导出节点');
     return api.nodes.export();
+  },
+
+  exportDbeaver: async (ids) => {
+    const api = getIpc();
+    if (!api) throw new Error('当前为预览模式（无主进程），请在 Electron 中运行以导出 DBeaver 配置');
+    try {
+      return await api.nodes.exportDbeaver(ids);
+    } catch (err) {
+      throw new Error(sanitizeIpcError(err));
+    }
   },
 
   importDoc: async (doc) => {

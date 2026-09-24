@@ -70,5 +70,6 @@ For UI, data-flow, clipboard, confirm-dialog, or download changes, use the trust
 - MySQL access remains read-only, executed identifiers are escaped, assigned resources are closed, and generated SQL is never sent to a pool; review the documented partial-construction gap separately.
 - Real secrets and exported data remain encrypted and absent from diagnostics/tests.
 - Shared contracts, handlers, preload methods, and renderer callers stay synchronized.
+- DBeaver topology export follows the [DBeaver Export Contract](./dbeaver-export.md): keep the exporter deterministic, validate the IPC boundary with the documented prefixes, and prove the topology-only/no-secret path with its focused tests and CDP download check.
 - Regression tests cover the changed invariant; full typecheck, lint, test, and build pass.
 - `mysqldiff/` has no task-authored diff (compare with the task baseline because its standalone working tree may already be dirty), and generated `dist-*` / `release/` files were not edited.

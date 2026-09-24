@@ -1,8 +1,7 @@
-// converters/ 预留：二期 DBeaver / DataGrip 等第三方连接配置导入。
-//
-// 首版导出仅自定义 JSON（见 ../src-core/types.ts ExportJSON，密码走 AES-GCM 约定加密段）。
-// 二期在此目录按 `NodeConverter` 接口实现第三方格式 → { meta, secret } 的转换，
-// 再经 Vault.saveNodeSecret + saveNodes 落盘。本文件只定接口，不做任何 IO。
+// converters/index.ts 仅定义第三方配置 → SqlDiff 的反向导入接口。
+// SqlDiff → DBeaver 的无秘密拓扑导出是独立方向，见 ./dbeaver.ts，不复用 NodeConverter。
+// 反向转换器返回 { meta, secret } 后，仍须经 Vault.saveNodeSecret + saveNodes 落盘。
+// 本文件只定接口，不做任何 IO。
 
 import type { NodeMeta, SecretBundle } from '../../src-core/types';
 
