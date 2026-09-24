@@ -8,6 +8,7 @@ files:
   - dist-renderer/**/*
   - package.json
 win:
+  icon: build/icon/icon.ico
   target:
     - target: nsis
       arch:
@@ -17,6 +18,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   shortcutName: SqlDiff
 mac:
+  icon: build/icon/icon.icns
   target:
     - target: dmg
       arch:
