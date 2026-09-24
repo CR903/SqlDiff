@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "质检门：语义一致+只读+打包配置"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "E2E跨层链路（UI→IPC→main→DB）核对"}

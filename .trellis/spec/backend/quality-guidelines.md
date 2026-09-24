@@ -58,6 +58,9 @@ import path from 'node:path'; // 或 import * as path，二选一全仓统一
 - 动词桶取首关键字（`verbOf`）：`CREATE OR REPLACE`→CREATE，前导注释/DELIMITER 块→OTHER；动词与 changeType 正交（`DROP+ADD PRIMARY KEY` 合写 changeType=DROP 但 verb=ALTER）；过滤链顺序固定 维度→对象→动词→切面→关键字，缺省/空数组视为 ALL 向后兼容。
 - 主进程必注册 `will-download` 静默落盘（`setSavePath(downloads/filename)`，空名回落），否则 Blob 锚点下载挂起无文件；成功 toast 为乐观口径（无回执通道）。
 - IPC 错误展示前必过 `sanitizeIpcError`（剥 `Error invoking remote method` 前缀）；过滤状态全数组化（对象/切面/动词），组内 OR 组间 AND，空/满视为 ALL。
+- 图标：源 `scripts/icon-source.html` → `npm run icon`（Electron 离屏多尺寸截图 → `build/icon/icon.{png,icns,ico}`）；`electron-builder.yml` 显式挂 `mac.icon`/`win.icon`，改图标后必须重跑 `npm run icon` 再 `npm run pack`。
+- 打包遇 GitHub release 下载 EOF 时用 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`（`electron` 本体与 builder-binaries 两者都能绕过）。
+- 灌测试数据进 MySQL 必带 `--default-character-set=utf8mb4`：`docker exec -i … mysql` 客户端默认 latin1，会把中文写成双重编码字节（HEX `C3A5…`），排查乱码时先 `hex(col)` 确认是库里坏还是应用坏。
 
 ---
 
@@ -65,6 +68,7 @@ import path from 'node:path'; // 或 import * as path，二选一全仓统一
 
 - `src-core/diff.test.ts` 覆盖表增删改列/主键/索引+过程增删改+DEFINER相等无差；`connection.test.ts` 覆盖SSH配置/端口/复用；`vault.test.ts` 覆盖加密往返+导出导入往返+老串解析。
 - 每次必跑：`npx tsc --noEmit` + `npm run lint` + `npm test` 全绿。
+- UI/数据链路改动必须补真机 CDP 回归（`--remote-debugging-port` + 可信点击）：Blob 下载、confirm 弹窗、剪贴板都只对可信手势响应，用 `el.click()` 会假阴性。真库差异用 Docker fixture 复现（结构差异 + 联合主键 + 无主键 + 小表数据），报告落 task 目录。
 
 ---
 
