@@ -170,3 +170,27 @@ will-download落盘/错误消毒/全部Tab/筛选去重多选；verbOf动词chip
 ### Status
 
 [OK] **Completed**
+
+
+## Session 8: DBeaver导出与桌面版二期收口
+<!-- trellis-session: v=2 fp=c1779b4647bfabf6 -->
+
+**Date**: 2026-09-24
+**Task**: DBeaver导出与桌面版二期收口
+**Branch**: `main`
+
+### Summary
+
+将转换器拆为DBeaver交付与DataGrip fixture后任务；实现DBeaver拓扑导出、节点选择弹窗、SSH映射和无秘密下载；8项focused与167项全量测试、typecheck/lint/build及可信CDP通过；归档转换器和二期父任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `81ea19e` | chore(task): 拆分DBeaver与DataGrip转换器规划 |
+| `7b96696` | chore(task): 确认DBeaver结构化验收边界 |
+| `a09c254` | feat(desktop): add DBeaver node export |
+
+### Status
+
+[OK] **Completed**
