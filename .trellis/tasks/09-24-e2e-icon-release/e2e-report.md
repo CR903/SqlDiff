@@ -1,6 +1,6 @@
 # E2E 全面测试报告
 
-日期：2026-09-24 · 平台：macOS（darwin x64）· 被测：apps/desktop v0.1.0（HEAD `19cec8a`，含 `73ddc77` 图标管线）
+日期：2026-09-24 · 平台：macOS（darwin x64）· 被测代码：`19cec8a`（含 `73ddc77` 图标管线；后续文档提交不改变产品代码）
 方法：Electron `--remote-debugging-port=9333` + CDP（`Runtime.evaluate` 读状态、`Input.dispatchMouseEvent` **可信点击**、`Page.handleJavaScriptDialog` 处理 confirm、剪贴板/文件实证）
 证据：本目录 `evidence/*.png`（表中使用相对 `evidence/` 路径）
 
@@ -11,11 +11,19 @@
   - 数据差异：buildings（A1行/B3行，含同 key 改值）、pair_kv（**联合主键** A2/B2）、no_pk_table（**无主键**）、users（0/0）
 - 说明：指定内网库 `192.168.0.5:3306` 在本次执行中未完成可用 MySQL 连接（原 harness 记录为 EHOSTUNREACH/timeout；本次 CLI 复核亦返回连接错误 65），因此改用 Docker 造等价 fixture；该 fixture 覆盖了结构、联合主键、无主键和小表数据，但不等于指定 `smarterlab` / `smarterlab_zky` 真库验证。
 
+## 验收边界（2026-09-24 用户批准）
+
+以下只调整本次任务的验收判定，不改变上文记录的测试事实、证据或环境限制：
+
+- 指定内网真库不可达时，以 Docker MySQL fixture 作为结构/数据对比验收证据；fixture 覆盖范围和不等同于真库验证的限制保持不变。
+- Windows 包在 macOS 交叉构建时，以 PE 架构、NSIS 产物、`RT_GROUP_ICON` 和包内资源核验作为验收证据；不要求 Windows Explorer 显示或 Windows 真机启动。
+- T1 截图是种子演示态，空对比态由 T2 证据覆盖，不能把 T1 截图单独解读为独立空节点库冷启动。
+
 ## 用例结果
 
 | # | 用例 | 结果 | 关键证据 |
 |---|------|------|----------|
-| T1 | 冷启动：标题/三栏（截图是种子演示态；空对比态另见 T2a） | ⚠️ | `evidence/t1-cold-start.png` |
+| T1 | 冷启动：标题/三栏（截图是种子演示态；独立空态限制见下方备注） | ⚠️ | `evidence/t1-cold-start.png` |
 | T2a | 新增弹窗空校验（必填拦截） | ✅ | `evidence/t2-new-conn-fail.png` |
 | T2b | 填表 → 测试连接失败（中文结构化，无 `Error invoking`） | ✅ | `evidence/t2-new-conn-fail.png`；toast `连接失败 [MYSQL_CONNECT] … ECONNREFUSED` |
 | T2c | 保存 → 下拉出现 + 左侧「全部」可见 | ✅ | `evidence/t2-after-save.png` |
@@ -38,7 +46,7 @@
 | T8b | Cmd+Enter 快捷键触发对比（2→13 条） | ✅ | `evidence/t8-smoke.png` |
 | T8c | 节点搜索过滤 | ✅ | 临时 CDP 断言：hit=1 |
 
-**结论：报告记录 22/22 条测试动作已执行，在 demo/Docker fixture 可用范围内通过；本次复核未能在指定内网真库重跑，且部分环境限制见下文，不能据此宣称 AC1 完全关闭。**
+**结论（事实与验收分开）：报告记录 22/22 条测试动作已执行；已执行且可判定的断言在 demo/Docker fixture 可用范围内通过，但 T1 冷启动仍为 ⚠️（独立空节点库冷启动未单独实证）。指定内网真库仍未完成实证，Windows Explorer/真机启动未执行；按 2026-09-24 用户批准的环境豁免，本任务将 AC1 记为“豁免后接受”，不把 fixture 证据表述为指定真库验证。**
 
 ## 备注与观察（非缺陷）
 
@@ -61,11 +69,11 @@
 
 | AC | 状态 | 结论 |
 |----|------|------|
-| AC1 T1-T8 | ⚠️ 部分通过 | demo/Docker fixture 范围动作完成；指定真库未闭环，T1 空状态证据在 T2 而非 T1 截图 |
-| AC2 图标 | ✅（环境受限） | `npm run icon`、ICNS/ICO 多尺寸、builder 引用及 mac/Windows 包内嵌入均核验；未在 Windows Explorer 启动查看 |
-| AC3 三安装包 | ✅（环境受限） | x64/arm64 DMG 与 x64 NSIS 均生成，架构/图标/校验通过；Windows 真机启动未执行 |
-| AC4 只读/凭证 | ⚠️ 部分通过 | Docker fixture 全程只读且任务目录无凭证；指定 `smarterlab` 真库尚未完成连接实证 |
-| AC5 三件套/老代码 | ✅ | `tsc`、lint、159 tests 全绿；`mysqldiff/` 相对任务基线零改动 |
+| AC1 T1-T8 | ✅（豁免后接受） | 已记录 22/22 条动作；已执行且可判定的断言在 demo/Docker fixture 范围完成，报告保留截图/断言证据；指定真库未闭环，T1 种子演示态由 T2 覆盖 |
+| AC2 图标 | ✅（豁免后接受） | `npm run icon`、ICNS/ICO 多尺寸、builder 引用及 mac/Windows 包内嵌入均核验；Windows Explorer/真机显示按批准豁免不要求 |
+| AC3 三安装包 | ✅（豁免后接受） | x64/arm64 DMG 与 x64 NSIS 均生成，PE 架构、DMG 校验、`RT_GROUP_ICON` 和包内资源核验通过；Windows 真机启动未执行 |
+| AC4 只读/凭证 | ✅（豁免后接受） | Docker fixture 对比路径全程只读且任务目录无凭证；指定 `smarterlab` 真库尚未完成连接实证，fixture 不等同于真库证据 |
+| AC5 三件套/老代码 | ✅（已完成） | `tsc`、lint、159 tests 全绿；`mysqldiff/` 相对任务基线零改动 |
 
 # 应用图标
 
