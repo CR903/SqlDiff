@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 6
+- **Total Sessions**: 7
 - **Last Active**: 2026-09-24
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~150 | Active |
+| `journal-1.md` | ~172 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 7 | 2026-09-24 | 补齐Trellis项目开发规范 | `5ab55f4` | `main` |
 | 6 | 2026-09-24 | E2E图标发布任务验收收口 | `73ddc77`, `19cec8a`, `30035a3`, `33e98b1` | `main` |
 | 5 | 2026-09-22 | UI修单四项+动词搜索R7收尾 | `ba1f781`, `9881e57`, `f83f91c` | `main` |
 | 4 | 2026-09-22 | SSH+行级冒烟验证闭环 | `7c550f3` | `main` |

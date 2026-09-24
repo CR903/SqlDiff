@@ -148,3 +148,25 @@ will-download落盘/错误消毒/全部Tab/筛选去重多选；verbOf动词chip
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: 补齐Trellis项目开发规范
+<!-- trellis-session: v=2 fp=cc83a8064518579c -->
+
+**Date**: 2026-09-24
+**Task**: 补齐Trellis项目开发规范
+**Branch**: `main`
+
+### Summary
+
+基于Electron/React/TypeScript真实代码完成backend/frontend全部规范与索引，记录进程边界、MySQL只读契约、状态管理、类型安全、CDP E2E、安全与打包规则；typecheck/lint/159测试/build全绿并归档bootstrap任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5ab55f4` | docs(spec): 补齐前后端项目开发规范 |
+
+### Status
+
+[OK] **Completed**
