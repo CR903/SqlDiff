@@ -1,59 +1,46 @@
 # Component Guidelines
 
-> How components are built in this project.
+## Current Component Pattern
 
----
+Components are local function components in `src-renderer/App.tsx`; there is no `React.FC`, component class, or imported component library. `monaco-editor` is installed but intentionally not imported: the current SQL view is a highlighted `<pre>`. `App` is the composition root. Most child components are presentation components that receive values and callbacks through props. `NodeModal` is the current exception that selects `saveNode` and `testDraft` directly from Zustand because it owns the form workflow.
 
-## Overview
+The three primary regions are stable product concepts:
 
-<!--
-Document your project's component conventions here.
+- `NodeLibrary` / `NodeCard` / `HistoryRow` own the left node/history browser;
+- `CompareSlots`, `DataSection`, and `DiffTable` own comparison controls and results in the center;
+- `SqlPreview` owns selected/current-tab SQL presentation, copy, export, risk, and rollback text.
 
-Questions to answer:
-- What component patterns do you use?
-- How are props defined?
-- How do you handle composition?
-- What accessibility standards apply?
--->
+## Props and Data Flow
 
-(To be filled by the team)
+- Type component props inline next to the component, as in `NodeLibrary`, `DiffTable`, and `SqlPreview`. Use explicit callback prop names (`onPick`, `onRun`, `onToggleObj`) and domain types from `src-core/types.ts`.
+- Pass already-filtered rows into presentational components. `App` computes `tabItems` and gives that exact array to both `DiffTable.rows` and `SqlPreview.tabItems`; do not repeat the filter chain inside either component.
+- Keep selection keyed by `DiffItem.id`. The diff/object/aspect/verb filter setters and a completed compare clear `selectedId`; the current `setTableFilter` and `toggleScope` actions do not, so `SqlPreview` falls back to the current tab when a selected id is no longer visible.
+- `NodeCard` demonstrates nested-action handling: star/test/edit/delete buttons call `stopPropagation()` so the card's own pick handler does not also fire. Preserve that separation when adding card actions.
+- For drag/drop, `Slot` calls `preventDefault()` on dragover and carries the node id as `text/plain`, matching `NodeCard.onDragStart`.
 
----
+## State and Derived Rendering
 
-## Component Structure
+- Keep transient input state local: `NodeModal` owns its form strings and test/save flags; `DataSection` owns the add-row A/B draft selects while existing pair selections remain in the store; `DataOptionsInputs` owns string drafts and syncs normalized numeric values from props.
+- Use `useMemo` for expensive or identity-sensitive derivations. `App` builds the keyword/object/aspect/verb chain in separate memo stages so counts have a clear base. `SqlPreview` memoizes export text and highlighted HTML.
+- Do not store `tabItems`, SQL preview HTML, or filter counts back into Zustand. They are derived from `items` and filter state in `App`.
 
-- 三栏：`NodeLibrary`（搜索+历史/我的/常用+draggable）/ `CompareSlots`（A/B drop+swap/clear+scope+表过滤+进度）/ `DiffTable`（一级Tab计数+二级对象过滤+选中行）/ `SqlPreview`。单文件内拆函数可接受，状态走zustand `store.ts`。
+## Rendering and Styling
 
----
+- Production styles live in `src-renderer/styles.css`; JSX uses semantic classes and follows the dark three-pane layout. Preserve the fixed desktop proportions unless a task explicitly redesigns the app.
+- The SQL view is currently a highlighted `<pre>`, not Monaco. `highlightSql` escapes `&`, `<`, and `>`, then reserves comments, quoted strings, and backtick identifiers before keyword/number highlighting; this prevents nested or false keyword spans. `SqlPreview` is the only production `dangerouslySetInnerHTML` use. Never inject raw database text or error text as HTML.
+- `formatSqlSafe` falls back to the original text when formatting fails. Preserve non-blocking formatting and highlighting behavior.
+- Empty/loading/error states are explicit in the relevant component. Examples are `NodeLibrary`'s empty list, `DiffTable`'s empty rows, `DataSection`'s mapping state, and `SqlPreview`'s no-SQL state.
 
-## Props Conventions
+## Accessibility Baseline
 
-- 复制内容必须=所见（`toExportSql`同源，头注释A/B/时间），DROP复制二次confirm。
+The current code uses native `<button>`, `<input>`, `<select>`, `<textarea>`, and `<label>` elements, disables actions while busy, and gives the progress bar and modal basic ARIA metadata (`CompareSlots` and `NodeModal`). Preserve these semantics and visible labels when changing markup.
 
----
+Accessibility is not fully solved: clickable `NodeCard`/`Slot` containers and diff table rows are not keyboard-operable, tabs/chips do not expose pressed state, and `NodeModal` is not focus-trapped. There is no accessibility lint or automated a11y suite. Treat these as known gaps rather than claiming WCAG conformance; changes that touch an interactive element should not make keyboard or label behavior worse and should include a manual/CDP check.
 
-## Styling Patterns
+## Avoid
 
-- 深色智能化，DROP红警+风险徽标；SQL高亮先占位注释/字符串/标识符（PUA）再染关键字，防串内关键字误标。
-
----
-
-## Common Mistakes
-
-- 常用Tab硬阈值致新节点永不入围 → 置顶或用过即入围按频次倒序；`useMemo`依赖勿放每render新引用。
-
----
-
-## Accessibility
-
-<!-- A11y requirements and patterns -->
-
-(To be filled by the team)
-
----
-
-## Common Mistakes
-
-<!-- Component-related mistakes your team has made -->
-
-(To be filled by the team)
+- adding a second filtering or counting path in a child component;
+- using `el.click()`-style synthetic behavior as proof that download/clipboard/confirm flows work;
+- storing modal field state globally;
+- introducing a new editor/component dependency, a CSS framework, or a component directory without a product requirement (the existing Monaco dependency is intentionally unused);
+- copying structure from `apps/desktop-mock/index.html` into production while ignoring current business rules.

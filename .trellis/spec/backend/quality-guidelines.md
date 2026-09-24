@@ -1,79 +1,74 @@
-# Quality Guidelines
+# Main-Process Quality, Security, and Release Guidelines
 
-> Code quality standards for backend development.
+## Required Quality Gate
 
----
+The app uses strict TypeScript and unused-symbol checks in `apps/desktop/tsconfig.json`, plus the recommended JavaScript/TypeScript ESLint sets in `eslint.config.mjs`. There is no formatter or React-specific lint plugin, so match the existing two-space, semicolon, single-quote style and do not claim formatting is automated.
 
-## Overview
+Run from `apps/desktop`:
 
-<!--
-Document your project's quality standards here.
-
-Questions to answer:
-- What patterns are forbidden?
-- What linting rules do you enforce?
-- What are your testing requirements?
-- What code review standards apply?
--->
-
-(To be filled by the team)
-
----
-
-## Forbidden Patterns
-
-- `mysqldiff/` 老代码禁止直改，只读移植到 `apps/desktop/src-core/diff.ts`（diff语义须与 `diffTable:257-266` / `diffTableField:267-335` / `diffProcedure:223-237` 一致，判空用过滤后文本）。
-- secrets禁止进 `nodes.json`，只进vault；导出JSON禁止明文，统一 `ExportJSON {version:1, secretsEnc:{enc:"aes-gcm",iv,data}}`。
-- 渲染进程禁止直引 `node:crypto/mysql2/ssh2`，跨层共享纯函数放 `src-core/compare-filter.ts`。
-
-### Don't: node内置模块默认导入（启动崩坑）
-
-**Problem**:
-```ts
-// tsconfig 无 esModuleInterop 时这样写：
-import path from 'node:path';   // 编译后 path_1.default.join -> TypeError: Cannot read properties of undefined (reading 'join')
-import fs from 'node:fs';       // 同理，vault/store-json 启动即崩
+```bash
+npm run typecheck
+npm run lint
+npm test
+npm run build
 ```
 
-**Why it's bad**: `allowSyntheticDefaultImports` 只消类型错、不发互操作桩；主进程 CommonJS 下 default 为 undefined，`npm start` 建窗口直接崩且无窗口（2026-09-21实测）。
+Use focused tests while iterating, for example `npm test -- src-core/diff.test.ts`. `npm run pack` is reserved for icon or release changes.
 
-**Instead**:
-```ts
-// 根 tsconfig.json 常开：
-"esModuleInterop": true,
-import path from 'node:path'; // 或 import * as path，二选一全仓统一
-```
+## Security Invariants
 
----
+- Keep Electron locked down as configured in `createWindow`: `contextIsolation: true`, `nodeIntegration: false`, and an explicit preload. Do not expose arbitrary IPC or Node primitives through `contextBridge`.
+- The renderer must not directly import `node:*`, `electron`, `mysql2`, or `ssh2`. `src-core/compare-filter.ts` was extracted specifically to keep shared renderer logic browser-safe.
+- Store only `NodeMeta` and `HistoryEntry` in `nodes.json` / `history.json`. `SecretBundle` goes through `Vault` to safeStorage or AES-GCM files; exports use `ExportJSON.secretsEnc`, never plaintext secrets.
+- Validate IPC, imported JSON, and persisted records at runtime. Keep `assertSafeNodeId`, `assertNonEmpty`, `normalizePort`, `isNodeMeta`, and `Vault.importDecrypted` checks at their boundaries.
+- Escape identifiers in executed MySQL queries and parameterize values. Follow `escapeIdent`, `escapeDataIdent`, and `fetchPageByPK`; see [Database Guidelines](./database-guidelines.md). Generated structural DDL in `src-core/diff.ts` currently follows the legacy backtick interpolation, so hardening that output is a separate product/security change.
+- Do not add a path that executes generated `DiffItem.sql`. The product is a read-only comparison tool.
+- Keep `mysqldiff/` unchanged. Compatibility work belongs in `src-core` and must be justified by a test against current behavior or an approved product decision.
 
-## Required Patterns
+## Comparison Invariants
 
-- DB直连用 `mysql2/promise`，SSH单跳用 `ssh2`（密码+密钥），本地端口32000-35000随机+EADDRINUSE重试，隧道复用Map，`before-quit`关池。
-- metadata SQL与 `DB.js:75/79/83` 字面一致，SHOW CREATE缺行返回null不抛错，并发限流10。
-- 分类：DROP优先但DROP+CREATE同现归CHANGE；视图CREATE OR REPLACE归CHANGE；导出排序DROP→CREATE→CHANGE。
-- DiffItem一律单语句：表多ALTER按 `/;\s*\n/` 拆条目（id 后缀 `:s<n>`，末块无换行防双分号），例程 DELIMITER 块不拆；过滤/复制/统计走同一条目模型，保证复制=所见。
-- aspect判定顺序固定 table→primary→index→column（CREATE TABLE 体内含 PRIMARY KEY，table 必须先判）；PRIMARY KEY 增删归 primary，UNIQUE/FULLTEXT/SPATIAL 归 index。
-- stats 对称：`recountStats` 与 `compare-run` 数据合并分支必须计数字段一致（新增 stats 字段两处同步加，否则过滤与合并口径分裂）。
-- DDL/DML 维度：`objectType==='data'` 即 DML，其余 DDL；维度与 CREATE/DROP/CHANGE、DML 三 Tab 正交 AND 过滤。
-- 动词桶取首关键字（`verbOf`）：`CREATE OR REPLACE`→CREATE，前导注释/DELIMITER 块→OTHER；动词与 changeType 正交（`DROP+ADD PRIMARY KEY` 合写 changeType=DROP 但 verb=ALTER）；过滤链顺序固定 维度→对象→动词→切面→关键字，缺省/空数组视为 ALL 向后兼容。
-- 主进程必注册 `will-download` 静默落盘（`setSavePath(downloads/filename)`，空名回落），否则 Blob 锚点下载挂起无文件；成功 toast 为乐观口径（无回执通道）。
-- IPC 错误展示前必过 `sanitizeIpcError`（剥 `Error invoking remote method` 前缀）；过滤状态全数组化（对象/切面/动词），组内 OR 组间 AND，空/满视为 ALL。
-- 图标：源 `scripts/icon-source.html` → `npm run icon`（Electron 离屏多尺寸截图 → `build/icon/icon.{png,icns,ico}`）；`electron-builder.yml` 显式挂 `mac.icon`/`win.icon`，改图标后必须重跑 `npm run icon` 再 `npm run pack`。
-- 打包遇 GitHub release 下载 EOF 时用 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`（`electron` 本体与 builder-binaries 两者都能绕过）。
-- 灌测试数据进 MySQL 必带 `--default-character-set=utf8mb4`：`docker exec -i … mysql` 客户端默认 latin1，会把中文写成双重编码字节（HEX `C3A5…`），排查乱码时先 `hex(col)` 确认是库里坏还是应用坏。
+These are correctness contracts, not cleanup opportunities:
 
----
+- Direction is A source/expected to B target. `compareRun` and `diffDataRows` generate SQL that upgrades B toward A.
+- Structural semantics follow the legacy functions named in `src-core/diff.ts`: `filterTable`, `filterField`, `diffTable`, `diffTableField`, `filterProcedure`, `changeProcedure`, and `diffProcedure`. Preserve intentional legacy behavior unless a task explicitly changes it.
+- Each emitted table statement is one `DiffItem`. `splitStatements` handles table ALTER output and adds `:s<n>` ids; views, procedures, and functions remain atomic because `makeItems` calls `splitStatements` only for table objects (routine output can contain `DELIMITER` blocks).
+- Classification stays independent and ordered: DROP wins unless CREATE is also present; CREATE OR REPLACE is CHANGE; `aspectOf` checks table before primary/index/column; `verbOf` uses the first effective keyword.
+- Filtering and export must describe the same `DiffItem` model. The renderer's table and unselected bulk copy/export use its final filtered list; selecting a `DiffItem` intentionally narrows `SqlPreview` copy/export/risk/rollback to that item. Toggle counters intentionally use an upstream stage; `recountStats` and compare-result statistics must be updated together whenever `DiffItem` or `CompareStats` gains a field.
+- Data comparison uses PK first, then an all-`NOT NULL` UNIQUE identity. No identity skips the table, mismatched identities mark that table failed, and a threshold confirmation reruns with explicit consent.
+- Close assigned pools in `finally`, reuse/close SSH tunnels through `connection.ts`, and cancel long data reads through the `AbortSignal` path; review the documented partial-construction gap separately.
+- Keep renderer downloads and main-process save policy paired. `downloadSqlFile` initiates the Blob anchor and `registerWillDownload` sets the Downloads path. The renderer success toast is optimistic because there is no completion IPC; CDP/file inspection is the proof of a successful write.
 
-## Testing Requirements
+## Test Strategy
 
-- `src-core/diff.test.ts` 覆盖表增删改列/主键/索引+过程增删改+DEFINER相等无差；`connection.test.ts` 覆盖SSH配置/端口/复用；`vault.test.ts` 覆盖加密往返+导出导入往返+老串解析。
-- 每次必跑：`npx tsc --noEmit` + `npm run lint` + `npm test` 全绿。
-- UI/数据链路改动必须补真机 CDP 回归（`--remote-debugging-port` + 可信点击）：Blob 下载、confirm 弹窗、剪贴板都只对可信手势响应，用 `el.click()` 会假阴性。真库差异用 Docker fixture 复现（结构差异 + 联合主键 + 无主键 + 小表数据），报告落 task 目录。
+Tests are Vitest files, mostly colocated, and avoid live infrastructure by extracting pure functions or injecting minimal fakes. The current storage exception is `src-core/vault.test.ts`, which exercises `src-main/vault.ts` and `src-main/store-json.ts`:
 
----
+- legacy structural semantics and assembly: `src-core/diff.test.ts`;
+- connection configuration and tunnel cache: `src-main/connection.test.ts`;
+- SQL text, escaping, result shapes, and concurrency: `src-main/metadata.test.ts` and `src-main/data-fetch.test.ts`;
+- secret persistence/export and JSON storage: `src-core/vault.test.ts` (it exercises the main-process `vault.ts` and `store-json.ts`);
+- row identity decisions: `src-main/data-run-identity.test.ts`;
+- download and IPC error regressions: `src-main/download.test.ts` and `src-core/ipc-error.test.ts`.
 
-## Code Review Checklist
+Add or update a test in the same relevant layer as the change, preserving the documented storage exception. Test null/empty input, compatibility edges, and cleanup paths, not just the happy path. For filesystem tests, use temporary directories and remove them in `afterEach`, as in `vault.test.ts`.
 
-<!-- What reviewers should check -->
+For UI, data-flow, clipboard, confirm-dialog, or download changes, use the trusted-input CDP procedure in [Frontend Quality Guidelines](../frontend/quality-guidelines.md#cdp-end-to-end-checks).
 
-(To be filled by the team)
+## Icons and Packaging
+
+`scripts/icon-source.html` is the editable source. `scripts/generate-icon.mjs` renders it with offscreen Electron windows at all required sizes, validates PNG dimensions, builds `icon.ico`, and uses macOS `iconutil` to build `icon.icns`. `build/icon/` contains committed outputs referenced by `electron-builder.yml`.
+
+- After changing the icon source or size lists, run `npm run icon`, inspect the generated assets, and only then run `npm run pack`.
+- ICNS generation requires macOS. Do not hand-edit generated PNG/ICO/ICNS files; change the source/generator and regenerate.
+- `electron-builder.yml` explicitly targets Windows NSIS x64 and macOS DMG arm64/x64, and explicitly references `build/icon/icon.ico` and `icon.icns`. Preserve those references when changing packaging.
+- `npm run pack` rebuilds before packaging. If Electron or builder binaries fail to download with a GitHub EOF, the recorded fallback is `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`.
+- Current packages are unsigned; code signing, notarization, and automatic updates are not configured. Do not report those as verified.
+- Release output is gitignored. Validate generated package contents and architectures separately; the previous evidence and commands are recorded in `.trellis/tasks/archive/2026-09/09-24-e2e-icon-release/e2e-report.md`.
+
+## Review Checklist
+
+- The change is in the correct runtime layer and does not widen Electron privileges.
+- MySQL access remains read-only, executed identifiers are escaped, assigned resources are closed, and generated SQL is never sent to a pool; review the documented partial-construction gap separately.
+- Real secrets and exported data remain encrypted and absent from diagnostics/tests.
+- Shared contracts, handlers, preload methods, and renderer callers stay synchronized.
+- Regression tests cover the changed invariant; full typecheck, lint, test, and build pass.
+- `mysqldiff/` has no task-authored diff (compare with the task baseline because its standalone working tree may already be dirty), and generated `dist-*` / `release/` files were not edited.
