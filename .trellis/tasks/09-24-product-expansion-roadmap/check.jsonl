@@ -1,0 +1,11 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "审查路线图中的技术承诺是否符合安全、只读和测试约束"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "审查用户流程、E2E 和可验证性要求"}
+{"file": ".trellis/tasks/09-24-product-expansion-roadmap/roadmap.md", "reason": "审查最终路线图的决策、优先级和边界表达"}
+{"file": ".trellis/tasks/09-24-product-expansion-roadmap/research/capability-map-and-maturity.md", "reason": "核对当前能力、限制和成熟度判断"}
+{"file": ".trellis/tasks/09-24-product-expansion-roadmap/research/expansion-options-and-roadmap.md", "reason": "核对架构评分、成本和条件式路线摘要"}
+{"file": ".trellis/tasks/09-24-product-expansion-roadmap/research/user-needs-and-priority-signals.md", "reason": "核对事实与需求假设是否分开"}
+{"file": ".trellis/tasks/09-24-product-expansion-roadmap/research/candidate-directions-and-validation.md", "reason": "核对评分、排序和验证判据"}
+{"file": ".trellis/tasks/09-24-product-expansion-roadmap/research/adjacent-product-landscape.md", "reason": "核对竞品信号没有被误写为需求证明"}
+{"file": ".trellis/tasks/09-24-product-expansion-roadmap/research/mysql-schema-data-diff-workflows.md", "reason": "核对迁移工作流和生产安全事实"}
+{"file": ".trellis/tasks/09-24-product-expansion-roadmap/research/README.md", "reason": "审查事实、推断、假设和建议标签"}
+{"file": ".trellis/tasks/09-24-product-expansion-roadmap/research/scorecard.md", "reason": "审查评分和优先级是否有证据支撑"}

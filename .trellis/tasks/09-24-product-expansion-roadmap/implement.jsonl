@@ -1,0 +1,13 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "主进程、共享核心、数据和安全边界"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "renderer、状态、UI 和可信交互边界"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "测试、只读、安全和交付约束"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "UI 正确性、E2E 和下载验证约束"}
+{"file": ".trellis/tasks/09-24-product-expansion-roadmap/roadmap.md", "reason": "最终能力地图、方向排序、路线图和验证门槛"}
+{"file": ".trellis/tasks/09-24-product-expansion-roadmap/research/capability-map-and-maturity.md", "reason": "当前能力、成熟度和事实/假设边界"}
+{"file": ".trellis/tasks/09-24-product-expansion-roadmap/research/expansion-options-and-roadmap.md", "reason": "架构承载力、成本、风险和条件式路线摘要"}
+{"file": ".trellis/tasks/09-24-product-expansion-roadmap/research/user-needs-and-priority-signals.md", "reason": "用户需求假设、痛点和验证信号"}
+{"file": ".trellis/tasks/09-24-product-expansion-roadmap/research/candidate-directions-and-validation.md", "reason": "加权候选方向评分和最小实验"}
+{"file": ".trellis/tasks/09-24-product-expansion-roadmap/research/adjacent-product-landscape.md", "reason": "相邻产品、商业化信号和差异化边界"}
+{"file": ".trellis/tasks/09-24-product-expansion-roadmap/research/mysql-schema-data-diff-workflows.md", "reason": "MySQL迁移审查、Online DDL和数据工作流事实"}
+{"file": ".trellis/tasks/09-24-product-expansion-roadmap/research/README.md", "reason": "证据分级和路线图判定规则"}
+{"file": ".trellis/tasks/09-24-product-expansion-roadmap/research/scorecard.md", "reason": "评分维度和解释规则"}

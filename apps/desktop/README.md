@@ -50,7 +50,7 @@ apps/desktop/
     connection.ts          # mysql2 直连 + ssh2 单跳隧道池
     metadata.ts            # information_schema + SHOW CREATE（限流 10）
     compare-run.ts         # compare.run：拉快照 → 对比 → 历史落盘
-    converters/            # 二期 DBeaver/DataGrip 转换器预留（仅接口）
+    converters/            # DBeaver 拓扑导出；DataGrip 转换等待真实 fixture
   src-renderer/
     main.tsx               # React 入口
     App.tsx                # 三栏 UI + 节点表单 Modal
@@ -67,7 +67,7 @@ apps/desktop/
 
 ## IPC 契约
 
-- `nodes.list / create / update / delete / test / export / import / import-legacy`（M2 vault + R7 老串）
+- `nodes.list / create / update / delete / test / export / export-dbeaver / import / import-legacy`（M2 vault + DBeaver 拓扑导出 + R7 老串）
 - `conn.test({node, secret})`（M3，表单免保存测试）
 - `history.list / append / clear`（最近 20 条）
 - `compare.run({aId,bId,scopes,tableFilter}) → {items, stats}`（M4 diff 引擎 + M5 组装）
