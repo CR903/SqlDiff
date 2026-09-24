@@ -41,5 +41,5 @@
 ## Risks and Deferred Items
 
 - `mysql8` driver ID 依据官方研究，但不同 DBeaver 发行版的 Driver ID 仍需在可用环境核验；导出器应集中常量，不能散落硬编码。
-- 当前没有 DBeaver 安装和真实导入证据。若用户接受 AC6 的结构性验收，本任务可归档；否则需在有 DBeaver 的环境补一次导入烟测。
+- 当前没有 DBeaver 安装和真实导入证据。用户已于 2026-09-24 批准采用 AC6 的结构性验收；真实 DBeaver IDE 导入烟测作为后续补验记录，不阻塞本任务收口。
 - DataGrip SSH XML 标签尚未有真实 fixture，继续保持阻塞，不用猜测标签。
