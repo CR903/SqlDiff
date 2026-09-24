@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "IPC 错误、校验、部分失败和清理"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "安全不变量、Vitest、CDP 和全量门禁"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "UI 正确性、下载、可见列表和可信 E2E"}
+{"file": ".trellis/tasks/09-22-converters/research/dbeaver-connection-import.md", "reason": "核验 DBeaver 字段、导入边界和无密码约束"}
