@@ -21,7 +21,8 @@
   "children": [
     "09-29-result-source-state",
     "09-29-review-manifest",
-    "09-29-compare-service-integration-tests"
+    "09-29-compare-service-integration-tests",
+    "09-29-grant-blindness-false-drop"
   ],
   "parent": null,
   "relatedFiles": [],

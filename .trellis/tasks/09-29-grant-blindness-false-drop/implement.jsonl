@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": ":36 null跳过防假CREATE/DROP声明已被证伪须限定；:17-21 只读SQL清单需登记SHOW GRANTS"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "src-core保持纯函数、收窄属边界层compare-run；新main文件归属约定"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Result Source and Coverage Contract 需扩展 visibility；字段可选性与保守默认约定"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": ":12 展开态归App局部state不进Zustand；常驻提示不依赖toast"}

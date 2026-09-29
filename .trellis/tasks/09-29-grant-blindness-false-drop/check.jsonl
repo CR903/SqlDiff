@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "检查null跳过不变量与只读SQL清单；假DROPCORRECTNESS"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "检查SHOW GRANTS只读边界与reliable降级；无授权原文泄露"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "范围明示与CDP验证点；界面安静条件"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "renderer禁node/electron导入；tabItems单一过滤源"}

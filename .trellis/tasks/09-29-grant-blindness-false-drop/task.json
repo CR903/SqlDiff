@@ -1,0 +1,28 @@
+{
+  "id": "grant-blindness-false-drop",
+  "name": "grant-blindness-false-drop",
+  "title": "授权盲区导致假 DROP",
+  "description": "当账号仅有表级授权时，A 侧不可见对象被当作不存在，SqlDiff 输出 DROP TABLE 假象；需自动判定授权完整性并收窄比较范围",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": "apps/desktop",
+  "package": null,
+  "priority": "P2",
+  "creator": "smarterlab",
+  "assignee": "smarterlab",
+  "createdAt": "2026-09-29",
+  "completedAt": null,
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-29-review-evidence-chain",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "priority": "P0"
+  }
+}
