@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "null跳过不变量(database-guidelines.md:36)不可破坏；fetchMetadata改动须保 DatabaseMetadata 形状"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": ":14 单个SHOW CREATE失败记null与 :39 demo fallback 旧行为需同步；本任务改变后者"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": ":47 要求fallback行为变更需显式产品决策+UI回归；:12 展开态归App局部state不进Zustand"}
+{"file": ".trellis/spec/backend/index.md", "reason": "改 IPC 契约须同步 types.ts/preload/main/renderer；typecheck+lint+test+build 四件套"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "renderer 禁 node/electron/mysql2/ssh2 导入；tabItems 单一过滤源；交互行为需 CDP 场景"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "新增错误态卡片与明细表的组件与样式约定"}

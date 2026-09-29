@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "检查 null跳过不变量是否被破坏；无写库路径"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "检查真实失败不再回填demo；结构覆盖原因码降级正确"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "检查常驻标识不依赖toast；展开态未进Zustand"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "UI不变式与CDP交互回归检查清单"}

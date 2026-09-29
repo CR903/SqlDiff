@@ -1,0 +1,28 @@
+{
+  "id": "compare-service-integration-tests",
+  "name": "compare-service-integration-tests",
+  "title": "P1 compare/data 应用服务集成测试",
+  "description": "为 compare/data 应用服务补齐 cleanup、取消、部分失败与资源释放的集成测试，支撑前两个子任务",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "smarterlab",
+  "assignee": "smarterlab",
+  "createdAt": "2026-09-29",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-29-review-evidence-chain",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "priority": "P1"
+  }
+}
