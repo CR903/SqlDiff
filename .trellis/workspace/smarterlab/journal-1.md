@@ -216,3 +216,27 @@ will-download落盘/错误消毒/全部Tab/筛选去重多选；verbOf动词chip
 ### Status
 
 [OK] **Completed**
+
+
+## Session 10: 比较结果来源与覆盖状态显式化
+<!-- trellis-session: v=2 fp=1388b61eb120453b -->
+
+**Date**: 2026-09-29
+**Task**: 比较结果来源与覆盖状态显式化
+**Branch**: `main`
+
+### Summary
+
+读取路线图规划并建立安全迁移审查证据链三任务串行链；修复真实比较失败回填demo导致假diff、权限盲区等同于无差异两个缺陷；新增 ResultSource/CoverageReason 契约与结构覆盖报告；四件套全绿（194测试）
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `414bf29` | chore(task): 规划安全迁移审查证据链三任务 |
+| `b91e002` | feat(desktop): 显式化比较结果来源与覆盖状态 |
+| `dc721c7` | docs(spec): 同步结果来源与覆盖契约 |
+
+### Status
+
+[OK] **Completed**
