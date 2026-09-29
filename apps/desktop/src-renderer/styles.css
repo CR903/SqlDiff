@@ -78,7 +78,15 @@ kbd { background: #1e293b; border: 1px solid #334155; border-radius: 4px; paddin
 .risk-title:first-child { margin-top: 0; }
 .risk-text { color: #94a3b8; margin-top: 2px; }
 
-.statusbar { padding: 6px 16px; border-top: 1px solid #232d3a; font-size: 12px; color: #94a3b8; }
+/* 结果来源 / 结构覆盖：常驻状态行 + 中栏可展开明细（复用数据侧 .data-status 行式） */
+.statusbar { padding: 6px 16px; border-top: 1px solid #232d3a; font-size: 12px; color: #94a3b8; display: flex; align-items: center; gap: 4px; }
+.statusbar .linkish { background: none; border: none; padding: 0; color: #fcd34d; font-size: 12px; cursor: pointer; text-decoration: underline; }
+.statusbar .linkish:hover { color: #fde68a; }
+.coverage-card { flex: none; border-color: #713f12; }
+.coverage-head { font-size: 12px; color: #fcd34d; margin-bottom: 6px; }
+.result-error { flex: none; border-color: #7f1d1d; }
+.result-error .empty { color: #fca5a5; }
+.result-error .hint { color: #fca5a5; opacity: 0.85; }
 
 /* M5 三栏联调新增：徽标 / 风险 / 行选中 / 二级过滤 / 进度 / toast / 预览 */
 button.star { background: none; border: none; cursor: pointer; font-size: 14px; padding: 0 2px; }

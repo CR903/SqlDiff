@@ -3,6 +3,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import {
+  classifyCoverageReason,
   escapeIdent,
   fetchMetadata,
   listRoutines,
@@ -164,17 +165,112 @@ describe('fetchMetadata', () => {
     ]);
   }
 
-  it('四类对象全拉；单对象失败记 null 不中断', async () => {
-    const meta = await fetchMetadata(shopDb(), 'shop');
+  it('四类对象全拉；单对象失败记 null 不中断并写入 skipped', async () => {
+    const { meta, skipped } = await fetchMetadata(shopDb(), 'shop');
     expect(meta.tables).toEqual({ users: 'CREATE TABLE X', orders: 'CREATE TABLE X' });
     expect(meta.views).toEqual({ v_users: 'CREATE VIEW V' });
     expect(meta.procedures).toEqual({ p_sync: 'CREATE PROC P' });
     expect(meta.functions).toEqual({ f_total: null });
+    expect(skipped).toEqual([{ name: 'f_total', objectType: 'function', reason: 'unknown' }]);
   });
 
   it('tableFilter 只过滤表（子串、大小写不敏感）', async () => {
-    const meta = await fetchMetadata(shopDb(), 'shop', { tableFilter: 'USER' });
+    const { meta } = await fetchMetadata(shopDb(), 'shop', { tableFilter: 'USER' });
     expect(Object.keys(meta.tables)).toEqual(['users']);
     expect(Object.keys(meta.views)).toEqual(['v_users']);
+  });
+
+  it('showCreate 零行/缺列（无错误）记 object-missing', async () => {
+    const db = fakeDb([
+      { match: (s) => s.includes("'BASE TABLE'"), rows: [{ tabName: 'users' }, { tabName: 'orders' }] },
+      { match: (s) => s.includes("'VIEW'"), rows: [] },
+      { match: (s) => s.includes('parameters'), rows: [] },
+      // orders：零行；users：有行但缺列 —— 都归 object-missing。
+      { match: (s) => s.includes('`users`'), rows: [{}] },
+      { match: (s) => s.includes('`orders`'), rows: [] },
+    ]);
+    const { meta, skipped } = await fetchMetadata(db, 'shop');
+    expect(meta.tables).toEqual({ users: null, orders: null });
+    expect(skipped).toEqual([
+      { name: 'users', objectType: 'table', reason: 'object-missing' },
+      { name: 'orders', objectType: 'table', reason: 'object-missing' },
+    ]);
+  });
+
+  it('权限类错误记 permission-denied（errno 与 mysql2 code 双路）', async () => {
+    const db = fakeDb([
+      { match: (s) => s.includes("'BASE TABLE'"), rows: [{ tabName: 'users' }, { tabName: 'orders' }] },
+      { match: (s) => s.includes("'VIEW'"), rows: [] },
+      { match: (s) => s.includes('parameters'), rows: [] },
+      {
+        match: (s) => s.includes('`users`'),
+        rows: Object.assign(new Error('SELECT command denied'), { errno: 1142 }),
+      },
+      {
+        match: (s) => s.includes('`orders`'),
+        rows: Object.assign(new Error('denied'), { code: 'ER_TABLEACCESS_DENIED_ERROR' }),
+      },
+    ]);
+    const { skipped } = await fetchMetadata(db, 'shop');
+    expect(skipped).toEqual([
+      { name: 'users', objectType: 'table', reason: 'permission-denied' },
+      { name: 'orders', objectType: 'table', reason: 'permission-denied' },
+    ]);
+  });
+
+  it('全部成功时 skipped 为空（界面静默的前提）', async () => {
+    const allOk = fakeDb([
+      { match: (s) => s.includes("'BASE TABLE'"), rows: [{ tabName: 'users' }] },
+      { match: (s) => s.includes("'VIEW'"), rows: [{ viewName: 'v_users' }] },
+      {
+        match: (s) => s.includes('parameters'),
+        rows: [{ parName: 'p_sync', type: 'PROCEDURE' }, { parName: 'f_total', type: 'FUNCTION' }],
+      },
+      { match: (s) => s.toLowerCase().startsWith('show create table'), rows: [{ 'Create Table': 'CREATE TABLE X' }] },
+      { match: (s) => s.toLowerCase().startsWith('show create view'), rows: [{ 'Create View': 'CREATE VIEW V' }] },
+      { match: (s) => s.toLowerCase().startsWith('show create procedure'), rows: [{ 'Create Procedure': 'CREATE PROC P' }] },
+      { match: (s) => s.toLowerCase().startsWith('show create function'), rows: [{ 'Create Function': 'CREATE FUNC F' }] },
+    ]);
+    const { skipped, meta } = await fetchMetadata(allOk, 'shop');
+    expect(skipped).toEqual([]);
+    expect(Object.keys(meta.functions)).toEqual(['f_total']);
+  });
+});
+
+describe('classifyCoverageReason', () => {
+  it('无值的 reject 不冒充 object-missing（collect 另行直记）', () => {
+    // object-missing 由 collect 在"查询成功但结果为 null"时直记，不经此函数。
+    // 若这里用 undefined 同时表示"无错误"，Promise.reject(undefined) 会被误判。
+    expect(classifyCoverageReason(undefined)).toBe('unknown');
+  });
+
+  it('用户取消 → aborted（对齐 data-run.isAbortErr）', () => {
+    expect(classifyCoverageReason(Object.assign(new Error('cancel'), { code: 'ABORTED' }))).toBe('aborted');
+    const abortErr = new Error('cancel');
+    abortErr.name = 'AbortError';
+    expect(classifyCoverageReason(abortErr)).toBe('aborted');
+  });
+
+  it('MySQL 权限类 errno / mysql2 code → permission-denied', () => {
+    for (const errno of [1044, 1142, 1143, 1227, 1370]) {
+      expect(classifyCoverageReason(Object.assign(new Error('x'), { errno }))).toBe('permission-denied');
+    }
+    expect(
+      classifyCoverageReason(Object.assign(new Error('x'), { code: 'ER_PROCACCESS_DENIED_ERROR' })),
+    ).toBe('permission-denied');
+  });
+
+  it('对象已被删除 → object-missing', () => {
+    expect(classifyCoverageReason(Object.assign(new Error('gone'), { errno: 1146 }))).toBe('object-missing');
+    expect(classifyCoverageReason(Object.assign(new Error('gone'), { code: 'ER_NO_SUCH_TABLE' }))).toBe(
+      'object-missing',
+    );
+  });
+
+  it('未识别形态降级 unknown（不误判、不透传 errno）', () => {
+    expect(classifyCoverageReason(new Error('socket hang up'))).toBe('unknown');
+    expect(classifyCoverageReason(Object.assign(new Error('x'), { errno: 2013 }))).toBe('unknown');
+    expect(classifyCoverageReason('ECONNRESET')).toBe('unknown');
+    expect(classifyCoverageReason(null)).toBe('unknown');
   });
 });

@@ -194,9 +194,53 @@ export interface CompareStats {
   DML: DmlStats;
 }
 
+/**
+ * 比较结果来源：real = 主进程真实比较；demo = 本地示例降级（仅开发/无后端态）。
+ * 判定成本必须是"看一眼"级，故由调用方边界层显式标注（compare-run / demo）。
+ */
+export type ResultSource = 'real' | 'demo';
+
+/**
+ * 结构覆盖缺失原因码（粗粒度应用自有码，参照 DataTableStatus.reason 惯例）。
+ * 不透传 MySQL errno / 原始 message：原始错误留在开发日志，不进界面与导出物。
+ * - permission-denied：MySQL 权限类拒绝
+ * - object-missing：扫描与 SHOW CREATE 之间对象消失（零行/缺列/已被删除）
+ * - aborted：用户取消
+ * - unknown：其余异常（保守降级，宁可少判不误判）
+ */
+export type CoverageReason = 'permission-denied' | 'object-missing' | 'aborted' | 'unknown';
+
+/** 一个未取到 SHOW CREATE 的结构对象（比较中被跳过，不参与 diff）。 */
+export interface CoverageSkip {
+  /** 对象名 */
+  name: string;
+  /** 对象类型，与 ObjectType 对齐（结构四类型，不含 'data'）。 */
+  objectType: ObjectType;
+  reason: CoverageReason;
+}
+
+/**
+ * 结构对比覆盖报告：哪些对象真的被检查过，哪些没有。
+ * null 跳过不变量不变（有 null 的对象仍不产生 CREATE/DROP 假象），
+ * 本报告只把"静默跳过"变成"可判定跳过"。
+ */
+export interface StructureCoverage {
+  /** 成功取到 SHOW CREATE 的对象数，按类型（A/B 两侧累加）。 */
+  ok: Record<ObjectType, number>;
+  /** 未取到 SHOW CREATE 的对象明细（A/B 两侧合并；同名对象可能各记一条）。 */
+  skipped: CoverageSkip[];
+}
+
 export interface CompareResult {
   items: DiffItem[];
   stats: CompareStats;
   /** 数据对比逐表状态（含跳过/失败表），无数据对比时缺省。 */
   dataTables?: DataTableStatus[];
+  /**
+   * 结果来源；缺省视为 'real' 以兼容 core 内既有构造点（compareRun / postFilterResult
+   * 无法在纯 core 判定来源）。边界层必须显式标注：compare-run 标 real、demo 标 demo。
+   */
+  source?: ResultSource;
+  /** 结构覆盖报告；缺省表示未采集（兼容既有构造点）。 */
+  coverage?: StructureCoverage;
 }

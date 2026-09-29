@@ -14,7 +14,9 @@ import type {
   DataTablePair,
   HistoryEntry,
   NodeMeta,
+  ObjectType,
   SecretBundle,
+  StructureCoverage,
 } from '../src-core/types';
 import { compareRun, sortDiffItems } from '../src-core/compare';
 import {
@@ -25,7 +27,7 @@ import {
 } from '../src-core/compare-filter';
 import { createMysqlPool } from './connection';
 import { runDataCompare } from './data-run';
-import { fetchMetadata, MAX_CONCURRENCY } from './metadata';
+import { fetchMetadata, MAX_CONCURRENCY, type MetadataSnapshot } from './metadata';
 import { appendHistory, loadNodes } from './store-json';
 import type { Vault } from './vault';
 
@@ -43,6 +45,37 @@ export interface CompareRunHooks {
 
 // 纯函数过滤逻辑收敛到 src-core/compare-filter（主 + 渲染共享），此处重导出以保持引用兼容。
 export { filterMetadataByScopes, normalizeScopes, postFilterResult };
+
+/**
+ * 合并 A/B 结构覆盖报告。
+ * - `ok`：两侧成功取到 SHOW CREATE 的对象数按类型累加（scopes 外的类别记 0，
+ *   与 filterMetadataByScopes 的裁剪口径一致）。
+ * - `skipped`：两侧明细合并，不标库侧 —— 跨库同名对象各记一条是保守表现，
+ *   宁可提示"至少有一侧未检查"也不假装检查过。
+ */
+export function mergeCoverage(
+  a: MetadataSnapshot,
+  b: MetadataSnapshot,
+  scopes: ObjectType[],
+): StructureCoverage {
+  const on = new Set<ObjectType>(scopes);
+  const ok: Record<ObjectType, number> = { table: 0, view: 0, procedure: 0, function: 0 };
+  for (const snap of [a, b]) {
+    const m = snap.meta;
+    if (on.has('table')) ok.table += countCreated(m.tables);
+    if (on.has('view')) ok.view += countCreated(m.views);
+    if (on.has('procedure')) ok.procedure += countCreated(m.procedures);
+    if (on.has('function')) ok.function += countCreated(m.functions);
+  }
+  const skipped = [...a.skipped, ...b.skipped].filter((s) => on.has(s.objectType));
+  return { ok, skipped };
+}
+
+function countCreated(map: Record<string, string | null>): number {
+  let n = 0;
+  for (const k of Object.keys(map)) if (map[k] !== null) n += 1;
+  return n;
+}
 
 function findNodeOrThrow(nodes: NodeMeta[], id: string, which: 'A' | 'B'): NodeMeta {
   const node = nodes.find((n) => n.id === id);
@@ -83,15 +116,21 @@ export async function runCompareRequest(
     [poolA, poolB] = await Promise.all([createMysqlPool(nodeA, secretA), createMysqlPool(nodeB, secretB)]);
     const dbA = poolA as unknown as Parameters<typeof fetchMetadata>[0];
     const dbB = poolB as unknown as Parameters<typeof fetchMetadata>[0];
-    const [rawA, rawB] = await Promise.all([
+    const [snapA, snapB] = await Promise.all([
       fetchMetadata(dbA, nodeA.database, { tableFilter, concurrency: MAX_CONCURRENCY }),
       fetchMetadata(dbB, nodeB.database, { tableFilter, concurrency: MAX_CONCURRENCY }),
     ]);
+    const rawA = snapA.meta;
+    const rawB = snapB.meta;
     const filteredA = filterMetadataByScopes(rawA, scopes);
     const filteredB = filterMetadataByScopes(rawB, scopes);
     // compareRun 目标库用户名用于 DEFINER 归一（B 为待升级目标）。
     const base = compareRun(filteredA, filteredB, { targetUser: nodeB.user });
     const result = postFilterResult(base.items, scopes, tableFilter);
+    // 边界层显式标注来源（core 内无法判定）；覆盖报告在结构 diff 之后再附加，
+    // 因为 postFilterResult 按 scopes/tableFilter 裁过 items。
+    result.source = 'real';
+    result.coverage = mergeCoverage(snapA, snapB, scopes);
 
     if (wantData) {
       const pairs = resolveDataPairs(req, rawA.tables, rawB.tables);

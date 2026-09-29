@@ -10,6 +10,8 @@
 // 并发限流：SHOW CREATE 全拉时用 mapWithLimit 限流（默认 MAX_CONCURRENCY=10，
 // design.md 数据流约定），大库不打爆连接。
 
+import type { CoverageReason, CoverageSkip, ObjectType } from '../src-core/types';
+
 /** SHOW CREATE 并发上限（design.md：限流 10）。 */
 export const MAX_CONCURRENCY = 10;
 
@@ -29,6 +31,16 @@ export interface DatabaseMetadata {
   views: Record<string, string | null>;
   procedures: Record<string, string | null>;
   functions: Record<string, string | null>;
+}
+
+/**
+ * fetchMetadata 的并列返回：结构快照 + 未取到 SHOW CREATE 的对象明细。
+ * `meta` 形状不变（null 跳过不变量，database-guidelines.md），
+ * `skipped` 只是把原本静默的跳过显式化，不改变 diff 结果。
+ */
+export interface MetadataSnapshot {
+  meta: DatabaseMetadata;
+  skipped: CoverageSkip[];
 }
 
 export interface FetchMetadataOptions {
@@ -167,12 +179,66 @@ export async function mapWithLimit<T, R>(
   return out;
 }
 
-/** 拉全库元数据快照（M4 diff 输入）。单对象 SHOW CREATE 失败记 null，不中断整体。 */
+// MySQL 权限类错误码（SHOW CREATE 阶段可观测的部分）。errno 与 mysql2 错误 code 双路匹配。
+const PERMISSION_ERRNOS = new Set([1044, 1142, 1143, 1227, 1370]);
+const PERMISSION_CODES = new Set([
+  'ER_DBACCESS_DENIED_ERROR',
+  'ER_TABLEACCESS_DENIED_ERROR',
+  'ER_COLUMNACCESS_DENIED_ERROR',
+  'ER_SPECIFIC_ACCESS_DENIED_ERROR',
+  'ER_PROCACCESS_DENIED_ERROR',
+]);
+// 对象在扫描与 SHOW CREATE 之间被删除。
+const OBJECT_MISSING_ERRNOS = new Set([1146]);
+const OBJECT_MISSING_CODES = new Set(['ER_NO_SUCH_TABLE', 'ER_BAD_TABLE_ERROR']);
+
+function errCodes(err: unknown): { errno: number | null; code: string | null } {
+  if (typeof err !== 'object' || err === null) return { errno: null, code: null };
+  const e = err as { errno?: unknown; code?: unknown };
+  const errno = typeof e.errno === 'number' ? e.errno : null;
+  const code = typeof e.code === 'string' ? e.code : null;
+  return { errno, code };
+}
+
+function isAbortLike(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as { code?: unknown; name?: unknown };
+  return e.code === 'ABORTED' || e.name === 'AbortError';
+}
+
+/**
+ * SHOW CREATE 抛错时的原因码（纯函数，便于单测）。
+ * 只接受 catch 分支传回的 error：「查询成功但结果为 null」由 collect 直接记 object-missing，
+ * 不经过此函数，因此不必用 `undefined` 表达"无错误"，也不会把 `Promise.reject(undefined)`
+ * 误判成 object-missing。未识别形态一律降级 'unknown'，宁可少判不误判；
+ * errno 与原始 message 不出此函数。
+ */
+export function classifyCoverageReason(err: unknown): CoverageReason {
+  if (isAbortLike(err)) return 'aborted';
+  const { errno, code } = errCodes(err);
+  if (code !== null && PERMISSION_CODES.has(code)) return 'permission-denied';
+  if (errno !== null && PERMISSION_ERRNOS.has(errno)) return 'permission-denied';
+  if (code !== null && OBJECT_MISSING_CODES.has(code)) return 'object-missing';
+  if (errno !== null && OBJECT_MISSING_ERRNOS.has(errno)) return 'object-missing';
+  return 'unknown';
+}
+
+/** 单类对象的拉取结果：name → CREATE 文本（失败/无文本为 null）+ 未取到的明细。 */
+interface CategorySnapshot {
+  pairs: Array<readonly [string, string | null]>;
+  skipped: CoverageSkip[];
+}
+
+/**
+ * 拉全库元数据快照（M4 diff 输入）。
+ * 单对象 SHOW CREATE 失败记 null，不中断整体（null 跳过不变量不变），
+ * 同时把该对象及其原因码写入 `skipped`，让"权限盲区"不再等同于"无差异"。
+ */
 export async function fetchMetadata(
   db: DbQueryable,
   database: string,
   opts: FetchMetadataOptions = {},
-): Promise<DatabaseMetadata> {
+): Promise<MetadataSnapshot> {
   const concurrency =
     typeof opts.concurrency === 'number' && Number.isInteger(opts.concurrency) && opts.concurrency > 0
       ? opts.concurrency
@@ -187,17 +253,42 @@ export async function fetchMetadata(
   const procedures = routines.filter((r) => r.kind === 'PROCEDURE').map((r) => r.name);
   const functions = routines.filter((r) => r.kind === 'FUNCTION').map((r) => r.name);
 
-  const tolerant = (p: Promise<string | null>): Promise<string | null> => p.catch(() => null);
-  const [tablePairs, viewPairs, procPairs, funcPairs] = await Promise.all([
-    mapWithLimit(tables, concurrency, async (name) => [name, await tolerant(showCreateTable(db, name))] as const),
-    mapWithLimit(views, concurrency, async (name) => [name, await tolerant(showCreateView(db, name))] as const),
-    mapWithLimit(procedures, concurrency, async (name) => [name, await tolerant(showCreateProcedure(db, name))] as const),
-    mapWithLimit(functions, concurrency, async (name) => [name, await tolerant(showCreateFunction(db, name))] as const),
+  const collect = async (
+    names: readonly string[],
+    objectType: ObjectType,
+    fetchOne: (name: string) => Promise<string | null>,
+  ): Promise<CategorySnapshot> => {
+    const skipped: CoverageSkip[] = [];
+    // 保序收集（mapWithLimit 已保序），跳过明细与 pairs 同序，便于断言。
+    const pairs = await mapWithLimit(names, concurrency, async (name): Promise<readonly [string, string | null]> => {
+      let value: string | null = null;
+      let reason: CoverageReason = 'object-missing';
+      try {
+        value = await fetchOne(name);
+        // 返回 null = 查询成功但无可用文本（缺行/缺列/空串）→ object-missing。
+        if (value === null) reason = 'object-missing';
+      } catch (err) {
+        reason = classifyCoverageReason(err);
+      }
+      if (value === null) skipped.push({ name, objectType, reason });
+      return [name, value] as const;
+    });
+    return { pairs, skipped };
+  };
+
+  const [tablesR, viewsR, procR, funcR] = await Promise.all([
+    collect(tables, 'table', (n) => showCreateTable(db, n)),
+    collect(views, 'view', (n) => showCreateView(db, n)),
+    collect(procedures, 'procedure', (n) => showCreateProcedure(db, n)),
+    collect(functions, 'function', (n) => showCreateFunction(db, n)),
   ]);
   return {
-    tables: Object.fromEntries(tablePairs),
-    views: Object.fromEntries(viewPairs),
-    procedures: Object.fromEntries(procPairs),
-    functions: Object.fromEntries(funcPairs),
+    meta: {
+      tables: Object.fromEntries(tablesR.pairs),
+      views: Object.fromEntries(viewsR.pairs),
+      procedures: Object.fromEntries(procR.pairs),
+      functions: Object.fromEntries(funcR.pairs),
+    },
+    skipped: [...tablesR.skipped, ...viewsR.skipped, ...procR.skipped, ...funcR.skipped],
   };
 }

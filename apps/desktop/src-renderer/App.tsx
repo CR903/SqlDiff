@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { VERB_CHIPS, useDesktopStore, type AspectFilter, type DiffFilter, type LeftTab, type ObjectTypeFilter, type SlotId, type VerbFilter } from './store';
-import type { DataTableStatus, DiffItem, HistoryEntry, NodeMeta, ObjectType, ObjectTypeWithData, SecretBundle, StmtAspect, Verb } from '../src-core/types';
+import type { CoverageReason, DataTableStatus, DiffItem, HistoryEntry, NodeMeta, ObjectType, ObjectTypeWithData, SecretBundle, StmtAspect, Verb } from '../src-core/types';
 import { sanitizeIpcError } from '../src-core/ipc-error';
 import { verbOf } from '../src-core/classify';
 import { visibleNodes } from './node-filter';
@@ -639,6 +639,21 @@ function DiffTable({
 // ---------------------------------------------------------------------------
 // 数据对比：表映射 + 逐表状态 + 独立 INSERT/DELETE/UPDATE 三 Tab
 // ---------------------------------------------------------------------------
+
+const OBJECT_TYPE_LABEL: Record<ObjectType, string> = {
+  table: '表',
+  view: '视图',
+  procedure: '过程',
+  function: '函数',
+};
+
+/** 覆盖原因码的中文短文案（原因码来自 src-core/types，原因文本只在界面这一处维护）。 */
+function coverageReasonText(r: CoverageReason): string {
+  if (r === 'permission-denied') return '权限不足';
+  if (r === 'object-missing') return '对象已不存在';
+  if (r === 'aborted') return '已取消';
+  return '未知原因';
+}
 
 function dataStatusText(s: DataTableStatus): string {
   if (s.status === 'done')
@@ -1391,6 +1406,9 @@ export default function App() {
   const progress = useDesktopStore((s) => s.progress);
   const progressPct = useDesktopStore((s) => s.progressPct);
   const lastComboText = useDesktopStore((s) => s.lastComboText);
+  const resultSource = useDesktopStore((s) => s.resultSource);
+  const coverage = useDesktopStore((s) => s.coverage);
+  const resultError = useDesktopStore((s) => s.resultError);
   const toast = useDesktopStore((s) => s.toast);
 
   const setLeftTab = useDesktopStore((s) => s.setLeftTab);
@@ -1433,6 +1451,8 @@ export default function App() {
   const [dbeaverExportOpen, setDbeaverExportOpen] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [latencies, setLatencies] = useState<Record<string, number>>({});
+  // 覆盖明细展开态：renderer-only UI 状态（state-management.md：不进 Zustand）。
+  const [coverageOpen, setCoverageOpen] = useState(false);
 
   // 首屏：经 IPC 拉节点 + 历史（失败则保留种子/空历史，离线可用）。
   useEffect(() => {
@@ -1561,9 +1581,18 @@ export default function App() {
     setToast('该历史条目的节点已不存在，仅展示');
   };
 
+  // 覆盖跳过计数：仅在存在未检查对象时出现；全部成功时界面保持安静。
+  const skippedCount = (coverage?.skipped.length ?? 0);
+  // 来源标识常驻状态行（不依赖 2.2s toast）；真实成功无前缀，避免噪音。
+  const sourcePrefix = resultSource === 'demo' ? '本地示例 · ' : '';
+  // 每次新结果都收起明细（结果替换即重置，与 resultError 同批）。
+  useEffect(() => {
+    setCoverageOpen(false);
+  }, [coverage]);
+
   const status = comparing
     ? (progress || '对比中…')
-    : lastComboText || `就绪 · ${items.length} 条差异`;
+    : sourcePrefix + (lastComboText || `就绪 · ${items.length} 条差异`);
 
   const handleTestNode = (id: string): void => {
     setTestingId(id);
@@ -1710,30 +1739,72 @@ export default function App() {
               onToast={setToast}
             />
           )}
-          <DiffTable
-            counts={counts}
-            total={items.length}
-            visibleCount={tabItems.length}
-            rows={tabItems}
-            diffFilter={diffFilter}
-            objectTypeFilter={objectTypeFilter}
-            aspectFilter={aspectFilter}
-            indexCount={indexCount}
-            objCounts={objCounts}
-            verbFilter={verbFilter}
-            verbCounts={verbCounts}
-            onDiffFilter={setDiffFilter}
-            onObjFilter={setObjectTypeFilter}
-            onToggleObj={toggleObjectType}
-            onToggleAspect={toggleAspect}
-            onToggleVerb={toggleVerb}
-            onSelect={selectDiff}
-            selectedId={selectedId}
-          />
-          {dataItems.length === 0 && dataStatus.length === 0 && (
-            <div className="card">
-              <div className="empty">暂无数据行 — 勾选「数据」范围并对比后，INSERT / DELETE / UPDATE 行与结构同表展示（可用“数据”对象 chip + 动词 DML 组定位）🍃</div>
+          {/*
+            结构覆盖明细：常驻计数在 footer，此处仅在用户点开时渲染（复用数据侧 statusRows 行式，
+            不新增独立面板）。skipped 为空时整块不出现，界面保持安静。
+          */}
+          {skippedCount > 0 && coverageOpen && coverage && (
+            <div className="card coverage-card">
+              <div className="coverage-head">
+                以下 {skippedCount} 个对象未取到 SHOW CREATE，已跳过且不参与差异 —— 「无差异」不等于「已全部检查」
+              </div>
+              <div className="data-status" role="table" aria-label="结构覆盖未检查对象明细">
+                {coverage.skipped.map((s, i) => (
+                  <div
+                    className="data-status-row st-skipped"
+                    key={`${s.objectType}:${s.name}:${i}`}
+                    title={coverageReasonText(s.reason)}
+                  >
+                    <span className="mono">
+                      {s.name} <span className="hint">{OBJECT_TYPE_LABEL[s.objectType]}</span>
+                    </span>
+                    <span>{coverageReasonText(s.reason)}</span>
+                  </div>
+                ))}
+              </div>
             </div>
+          )}
+          {/*
+            真实比较失败（Q1 决策）：结果区渲染显式错误卡，替代差异列表 ——
+            同时避免 DiffTable 的「空空如也」空态被误读成「两库一致」。
+          */}
+          {resultError ? (
+            <div className="card result-error" role="alert">
+              <div className="empty">
+                ⚠️ 对比失败：{resultError}
+                <div className="hint">
+                  请检查 A / B 节点的连接地址、账号与密码后重试；此处不展示任何示例差异，避免与真实结果混淆。
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              <DiffTable
+                counts={counts}
+                total={items.length}
+                visibleCount={tabItems.length}
+                rows={tabItems}
+                diffFilter={diffFilter}
+                objectTypeFilter={objectTypeFilter}
+                aspectFilter={aspectFilter}
+                indexCount={indexCount}
+                objCounts={objCounts}
+                verbFilter={verbFilter}
+                verbCounts={verbCounts}
+                onDiffFilter={setDiffFilter}
+                onObjFilter={setObjectTypeFilter}
+                onToggleObj={toggleObjectType}
+                onToggleAspect={toggleAspect}
+                onToggleVerb={toggleVerb}
+                onSelect={selectDiff}
+                selectedId={selectedId}
+              />
+              {dataItems.length === 0 && dataStatus.length === 0 && (
+                <div className="card">
+                  <div className="empty">暂无数据行 — 勾选「数据」范围并对比后，INSERT / DELETE / UPDATE 行与结构同表展示（可用“数据”对象 chip + 动词 DML 组定位）🍃</div>
+                </div>
+              )}
+            </>
           )}
         </section>
 
@@ -1746,7 +1817,24 @@ export default function App() {
         />
       </main>
 
-      <footer className="statusbar">{status}</footer>
+      {/*
+        状态行（常驻，不依赖 2.2s toast）：
+        - 来源前缀：demo → 「本地示例 · 」；真实成功不加前缀（失败时 lastComboText 本身写「对比失败」）。
+        - 覆盖计数：仅在存在未检查对象时出现，点击展开/收起中栏明细；全部成功时不渲染任何提示位。
+      */}
+      <footer className="statusbar">
+        <span>{status}</span>
+        {skippedCount > 0 && (
+          <button
+            className="linkish"
+            onClick={() => setCoverageOpen((v) => !v)}
+            aria-expanded={coverageOpen}
+            title={coverageOpen ? '收起未检查对象明细' : '查看未检查对象明细'}
+          >
+            · {skippedCount} 个对象未检查{coverageOpen ? '（收起明细）' : '（查看明细）'}
+          </button>
+        )}
+      </footer>
       {dbeaverExportOpen && (
         <DBeaverExportModal
           nodes={nodes}

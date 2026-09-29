@@ -110,5 +110,9 @@ export function runDemoCompare(
     fb.tables = Object.fromEntries(Object.entries(fb.tables).filter(([k]) => hit(k)));
   }
   const base = compareRun(fa, fb, opts);
-  return postFilterResult(base.items, [...on], '');
+  const out = postFilterResult(base.items, [...on], '');
+  // 边界标注来源：core 内无法判定调用方是谁。全仓 demo 构造点仅此一处。
+  out.source = 'demo';
+  // 不写 coverage：内置快照 100% 取到 SHOW CREATE，覆盖报告无意义。
+  return out;
 }

@@ -9,8 +9,10 @@ import type { ChangeType,
   NodeMeta,
   ObjectType,
   ObjectTypeWithData,
+  ResultSource,
   SecretBundle,
   StmtAspect,
+  StructureCoverage,
   Verb,
 } from '../src-core/types';
 import { sanitizeIpcError } from '../src-core/ipc-error';
@@ -178,6 +180,18 @@ interface DesktopState {
   progressPct: number;
   /** 上次组合描述（记忆上次组合） */
   lastComboText: string;
+  /**
+   * 上次结果来源（real=主进程真实比较 / demo=本地示例降级）；null=尚无结果。
+   * 常驻状态行渲染，不依赖 toast。缺省视为 real 与 core 契约一致。
+   */
+  resultSource: ResultSource | null;
+  /** 上次结果的结构覆盖报告；null=未采集（demo 路径不产出）。 */
+  coverage: StructureCoverage | null;
+  /**
+   * 真实比较失败的显式错误态（已 sanitize 的中文原因）；null=无错误。
+   * 非 no-ipc 的失败不再回填示例数据，结果列表清空并展示此原因。
+   */
+  resultError: string | null;
   /** toast 轻提示 */
   toast: string | null;
   setLeftTab: (t: LeftTab) => void;
@@ -257,6 +271,9 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
   progress: '',
   progressPct: 0,
   lastComboText: '',
+  resultSource: null,
+  coverage: null,
+  resultError: null,
   toast: null,
   setLeftTab: (t) => set({ leftTab: t }),
   setNodeKeyword: (kw) => set({ nodeKeyword: kw }),
@@ -583,6 +600,9 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
           diffFilter: 'ALL',
           verbFilter: 'ALL',
           confirmDataThreshold: false,
+          resultSource: result.source ?? 'real',
+          coverage: result.coverage ?? null,
+          resultError: null,
           lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · ${scopes.join('/')}${includeData ? '/data' : ''} · ${new Date().toLocaleTimeString()} · ${result.stats.ALL} 条差异${dataNote}`,
           toast: needConfirm
             ? '对比完成：部分大表超阈待确认，请二次确认后重跑'
@@ -609,23 +629,39 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
         throw new Error('no-ipc');
       }
     } catch (err) {
-      // 无后端 / 种子节点不在 vault / 连接失败时：本地示例降级，保证三栏可交互演示。
-      // P1a：对比兜底 reason/toast 只展示消毒后的中文 message（无 `Error invoking` 前缀）。
-      const demo = runDemoCompare(scopes, tableFilter);
+      // 两条路径分流（Q1）：开发/演示态（no-ipc）保留本地示例降级；
+      // 真实比较失败不再回填示例数据 —— 否则密码错误时用户看到的是一份
+      // 格式完整的假 diff。结果清空并进入显式错误态。
       const clean = sanitizeIpcError(err);
-      const isNoIpc = clean === 'no-ipc';
-      const reason = !isNoIpc && clean ? `（${clean}）` : '';
+      if (clean === 'no-ipc') {
+        const demo = runDemoCompare(scopes, tableFilter);
+        set({
+          items: demo.items,
+          dataStatus: [],
+          selectedId: null,
+          diffFilter: 'ALL',
+          verbFilter: 'ALL',
+          confirmDataThreshold: false,
+          resultSource: demo.source ?? 'demo',
+          coverage: null,
+          resultError: null,
+          lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · 本地示例数据`,
+          toast: `已用本地示例数据演示（${demo.stats.ALL} 条，数据对比需 Electron 后端）`,
+        });
+        return;
+      }
       set({
-        items: demo.items,
+        items: [],
         dataStatus: [],
         selectedId: null,
         diffFilter: 'ALL',
         verbFilter: 'ALL',
         confirmDataThreshold: false,
-        lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · 本地示例数据${reason}`,
-        toast: isNoIpc
-          ? `已用本地示例数据演示（${demo.stats.ALL} 条，数据对比需 Electron 后端）`
-          : `后端对比失败，已用本地示例数据演示${reason}`,
+        resultSource: null,
+        coverage: null,
+        resultError: clean,
+        lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · 对比失败`,
+        toast: `后端对比失败：${clean}`,
       });
     } finally {
       try {
