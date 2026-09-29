@@ -15,7 +15,9 @@ The project has Vitest but no React Testing Library, jsdom suite, snapshot frame
 
 - `src-renderer/node-filter.test.ts` covers left-tab and keyword behavior;
 - `src-renderer/sql.test.ts` covers highlighter span behavior and export ordering (the current suite has no raw HTML-metacharacter case);
-- shared filter behavior is covered in `src-core/verb-search.test.ts` and `src-core/ddl-dml-index.test.ts`.
+- `src-renderer/demo-source.test.ts` and `store-source-split.test.ts` cover the source marker, the "silent when nothing was skipped/limited" conditions, and the `visibility` state transitions;
+- shared filter behavior is covered in `src-core/verb-search.test.ts` and `src-core/ddl-dml-index.test.ts`;
+- grant-shape parsing is covered in `src-core/visibility.test.ts` and the narrowing plus the false-`DROP` regression in `src-main/compare-run-visibility.test.ts`. Keep the "before narrowing" control case: it is what proves the regression test can still fail.
 
 Add a focused renderer test for filter, formatting, storage parsing, or state-independent helper changes. Do not add a shallow snapshot that merely repeats JSX structure.
 
@@ -24,7 +26,8 @@ Add a focused renderer test for filter, formatting, storage parsing, or state-in
 - Keep the final `tabItems` array as the source for `DiffTable`, `visibleCount`, and unselected bulk copy/export. If a row is selected, `SqlPreview` intentionally narrows the current preview, copy, export, risk, and rollback to that item. Change-tab and chip counts intentionally use the upstream `byAspect` stage so filters remain reversible. `App` and `SqlPreview` are the reference implementations.
 - Preserve the shared filter semantics in `src-core/compare-filter.ts`: OR within a multi-select group, AND across groups, empty/full selections treated as ALL, and table/data keyword filtering without excluding views or routines.
 - Keep real and demo results distinguishable: `runCompare` only falls back to demo results in the `no-ipc` development state, and marks them `source: 'demo'` so the status bar carries a permanent `本地示例 ·` prefix. A real comparison failure clears `items` and renders the sanitized reason in an explicit error card instead of an example diff. Structural coverage gaps are permanent footer text too: a `N 个对象未检查` counter plus an expandable object/type/reason table, both absent when nothing was skipped.
-- Verify the interactive parts of that surface with CDP rather than snapshots: a real-failure error card, the coverage counter appearing only when `skipped` is non-empty, and expanding and collapsing the detail table.
+- Keep the comparison scope equally explicit. Grant blindness produces a `visibility` report, and the footer must show either `N 个对象因授权未参与比较` (with an expandable object/type/side table) or, when `reliable === false`, the stronger 「授权范围无法确认，已按最保守范围比较」. Both are permanent footer text, both reuse the coverage card's `coverage-card` / `st-skipped` row styles rather than a new panel, and both are fully absent when `excluded` is empty and the assessment is reliable. A silently narrowed comparison is a defect: users must never be unable to tell that an object was excluded from the diff.
+- Verify the interactive parts of that surface with CDP rather than snapshots: a real-failure error card, the coverage counter appearing only when `skipped` is non-empty, the scope notice appearing only when `excluded` is non-empty or the assessment is unreliable, the `reliable === false` wording override, and expanding and collapsing both detail tables.
 - Keep real secrets transient. `NodeModal` may hold form values while editing and send them to `conn.test` / node save, but they must not enter Zustand persistence, localStorage, logs, or task artifacts.
 - `highlightSql` must continue to escape text before adding markup. When changing it, test `<`, SQL keywords inside quotes, and comments; the current `sql.test.ts` covers the quote/comment cases and still needs a raw `<` regression if that boundary changes.
 

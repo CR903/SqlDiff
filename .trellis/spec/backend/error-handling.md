@@ -12,6 +12,8 @@ There is no HTTP error response. Main-process failures reject the `ipcRenderer.i
 | A table exceeds the row limit | `DataThresholdError`, then `DataTableStatus` with `status: 'confirm-needed'` | UI asks for confirmation and reruns |
 | User cancels a data fetch | `Error` with `code = 'ABORTED'` or name `AbortError` | `data-run.isAbortErr` stops the run |
 | A single `SHOW CREATE` fails | `null` in `DatabaseMetadata`, plus a `CoverageSkip {name, objectType, reason}` in `MetadataSnapshot.skipped` | `compareRun` skips that object; `CompareResult.coverage` reports the gap |
+| An object is invisible to the connection account | narrowed out before `compareRun`; `ExcludedObject {name, objectType, side, reason}` in `CompareResult.visibility.excluded` | no CREATE/DROP is generated; the status bar reports the reduced comparison scope |
+| `SHOW GRANTS FOR CURRENT_USER()` fails, is unparseable, or returns a MySQL 8.0 role grant | `VisibilityAssessment { byDatabase: {}, reliable: false }` | `visibilityFor` returns `partial`, so the comparison narrows conservatively |
 | A real comparison fails while the app has no backend | demo results with `source: 'demo'` | `store.runCompare` development path only; status bar prefixes `本地示例 ·` |
 | Clipboard write fails | `sql.copy` returns `false` | `copyText` falls back to browser clipboard/`execCommand` |
 
@@ -34,6 +36,9 @@ There is no HTTP error response. Main-process failures reject the `ipcRenderer.i
 - Use `Promise.allSettled` for independent cleanup so one close failure hides neither the result nor another cleanup error.
 - Catch only where the product has an explicit policy:
   - `fetchMetadata` converts per-object `SHOW CREATE` failures to `null` and records a coarse `CoverageReason` (`permission-denied` / `object-missing` / `aborted` / `unknown`) in the snapshot's `skipped` list, so a permission blind spot is reported rather than looking like "no difference"; raw MySQL errors never reach the renderer;
+  - `assessVisibility` never throws. `SHOW GRANTS FOR CURRENT_USER()` is a probe of whether the comparison is provably complete, not a precondition for comparing, so a failure degrades to `reliable: false` and the caller narrows the scope instead of rejecting the request. The catch is deliberately unconditional: a driver error, an unparseable shape, and a `Promise.reject()` with no value all land on the same conservative outcome;
+  - `parseGrantLines` treats every unrecognized grant line as "not proven" instead of guessing. Version- and vendor-sensitive output shapes (MySQL 8.0 `GRANT \`role\` TO`, `GRANT PROXY`, managed-instance rewrites) must degrade toward narrowing, never toward `full`;
+  - grant text is parsed in-process and never becomes a result field, store value, UI string, log line, or export. Only the database name, its `full`/`partial` verdict, and object names cross the boundary;
   - `runDataCompare` records a failed table and continues;
   - `appendHistory` failure does not block a successful comparison;
   - renderer progress unsubscribe and best-effort star/use-count persistence ignore secondary failures.
@@ -48,5 +53,7 @@ Avoid:
 
 - throwing from a cleanup path and replacing the original comparison error;
 - treating missing `SHOW CREATE` text as an absent object;
+- treating an object that `information_schema` does not list as an absent object — that is the false-`DROP TABLE` defect, and it is only fixed by narrowing the input before `compareRun`, never by filtering `items` afterwards;
+- defaulting an unprovable visibility assessment to "complete";
 - including `SecretBundle`, private keys, connection strings, master-key bytes, or encrypted buffers in an error message;
 - adding a second error format in the renderer instead of using `sanitizeIpcError`.

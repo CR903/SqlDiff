@@ -13,9 +13,11 @@ apps/desktop/
 │   ├── store-json.ts         # nodes.json/history.json persistence
 │   ├── connection.ts         # mysql2 pools, ssh2 one-hop tunnel cache
 │   ├── metadata.ts           # information_schema and SHOW CREATE
+│   ├── visibility.ts         # (core) pure SHOW GRANTS text → per-database visibility
+│   ├── grants.ts             # SHOW GRANTS FOR CURRENT_USER() probe
 │   ├── data-fetch.ts         # COUNT and keyset-paginated SELECT
 │   ├── data-run.ts           # per-table data comparison orchestration
-│   ├── compare-run.ts        # A/B compare orchestration and history
+│   ├── compare-run.ts        # A/B compare orchestration, grant narrowing, and history
 │   ├── download.ts           # will-download save-path policy
 │   └── converters/           # DBeaver exporter + future third-party importers
 ├── src-core/                 # deterministic comparison/filter/risk logic
@@ -35,8 +37,9 @@ apps/desktop/
 - `src-main/main.ts` is the composition root for Electron lifecycle, window creation, IPC registration, clipboard, downloads, and shutdown cleanup. Keep handlers thin; delegate work as `registerNodesIpc` does to `vault.ts` and `store-json.ts`, and `compare.run` does to `compare-run.ts`.
 - `src-main/preload.ts` is the only supported renderer-to-main bridge. It exposes the typed `SqlDiffApi` as `window.sqldiff`; renderer modules must not import `ipcRenderer` directly.
 - `src-main/connection.ts` owns transport and resource lifetime. `createMysqlPool` creates pools, while callers close them. `ensureTunnel` owns the per-node SSH cache and `main.ts` invokes `closeAll` from its `before-quit` hook (the hook starts the async close but does not await it).
-- `src-main/metadata.ts`, `data-fetch.ts`, and the `connection.ts` ping helpers own read-only SQL execution. Comparison policy belongs in `src-core` or the run orchestrators, not in SQL string construction.
-- `src-core` owns deterministic logic shared by main and renderer. `src-core/compare-filter.ts` explicitly exists so renderer filtering does not pull in `node:crypto`, `mysql2`, or `ssh2`; follow that dependency rule for new shared helpers.
+- `src-main/metadata.ts`, `data-fetch.ts`, `grants.ts`, and the `connection.ts` ping helpers own read-only SQL execution. Comparison policy belongs in `src-core` or the run orchestrators, not in SQL string construction. `grants.ts` is a probe, not a policy: it executes one fixed statement and hands the result to the pure `src-core/visibility.ts` parser.
+- Boundary-layer decisions stay out of `src-core`. `narrowToSharedVisibility` lives in `compare-run.ts` because it needs the node's database names, and it runs before `compareRun` so the pure function never learns about grants. The parser itself stays in `src-core/visibility.ts` because "grant text → verdict" is pure and unit-testable without a database; it must not import `DbQueryable` or anything from `src-main` at runtime.
+- `src-core` owns deterministic logic shared by main and renderer. `src-core/compare-filter.ts` explicitly exists so renderer filtering does not pull in `node:crypto`, `mysql2`, or `ssh2`; follow that dependency rule for new shared helpers. `src-core/visibility.ts` is subject to the same rule — regex over strings only.
 - `src-core/types.ts` is the normal source of truth for domain types. `DatabaseMetadata` currently lives in `src-main/metadata.ts`, so consumers in `compare.ts`, `compare-filter.ts`, and `demo.ts` use `import type`; do not turn that into a runtime import.
 - `src-main/converters/dbeaver.ts` is the current SqlDiff → DBeaver topology exporter; `dbeaver.test.ts` is its focused regression. See the [DBeaver Export Contract](./dbeaver-export.md). `src-main/converters/index.ts` remains the future third-party → SqlDiff `NodeConverter` seam, which is a different direction and must not be used for export.
 

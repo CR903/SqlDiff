@@ -19,7 +19,7 @@ This directory covers the React renderer in `apps/desktop/src-renderer`. The UI 
 - Decide whether a value is cross-component domain state, component-local UI state, or derived data. Follow the split in `src-renderer/store.ts` and `App.tsx` rather than putting everything in Zustand.
 - Use one final filtered item list for the diff table, visible count, and unselected bulk copy/export. `App` passes the same `tabItems` to `DiffTable` and `SqlPreview`; selecting a row intentionally narrows `SqlPreview` to that item. Tab/chip counts intentionally use their documented upstream filter stages so toggles remain reversible.
 - For an IPC change, update `src-main/preload.ts`, `src-core/types.ts` when the domain contract changes, the main handler, and renderer callers together.
-- For `CompareResult` producers and consumers, follow the [Result Source and Coverage Contract](./type-safety.md#result-source-and-coverage-contract): every producer sets `source`, and coverage gaps must stay visible instead of being read as "no difference".
+- For `CompareResult` producers and consumers, follow the [Result Source and Coverage Contract](./type-safety.md#result-source-and-coverage-contract): every producer sets `source`, and both coverage gaps and a silently narrowed comparison scope must stay visible instead of being read as "no difference" or "fully checked".
 - For DBeaver export, follow [DBeaver Export Contract](../backend/dbeaver-export.md): the selection modal owns local selection, the store owns IPC, and the download must stay topology-only.
 - Add a pure Vitest regression for filters/SQL helpers. For clicks, dialogs, clipboard, downloads, or real data flow, plan the CDP procedure in [Quality Guidelines](./quality-guidelines.md#cdp-end-to-end-checks).
 
@@ -39,6 +39,7 @@ Then review that:
 - visible rows and the current visible count come from the final `tabItems`; unselected bulk copy/export and risk text use that list, while a selected row intentionally narrows `SqlPreview` copy/export/risk to one item; tab/chip counts keep their explicit upstream bases;
 - effects remove listeners, timers, and progress subscriptions;
 - real secrets are transient form state only and never enter local storage or exported plaintext;
+- grant text never reaches the renderer: only object names and `full`/`partial` verdicts cross `SHOW GRANTS FOR CURRENT_USER()`;
 - SQL rendered with `dangerouslySetInnerHTML` comes only from `highlightSql`, which escapes text first;
 - native controls, labels, disabled states, and existing ARIA roles were not regressed;
 - exercise interactive behavior that unit tests cannot cover with trusted CDP input.

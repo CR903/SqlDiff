@@ -16,12 +16,34 @@ Main-process modules use default imports for Node built-ins (`fs`, `path`, and `
 
 ## Result Source and Coverage Contract
 
-`CompareResult` gained optional `source` and `coverage` fields. They are optional by design, so treat them as load-bearing at every producer.
+`CompareResult` gained optional `source`, `coverage`, and `visibility` fields. They are optional by design, so treat them as load-bearing at every producer. `coverage` and `visibility` are not redundant: the first reports objects that were enumerated but unreadable, the second reports objects that could not be enumerated at all plus how much of the scope is provably covered.
 
 ### Signatures
 
 ```ts
 export type ResultSource = 'real' | 'demo';
+
+export type Visibility = 'full' | 'partial';   // per database
+
+export interface VisibilityAssessment {
+  /** db name -> verdict; an unlisted database reads as 'partial'. */
+  byDatabase: Record<string, Visibility>;
+  /** false whenever the probe failed, the output was unparseable, or a role grant was present. */
+  reliable: boolean;
+}
+
+export interface ExcludedObject {
+  name: string;
+  objectType: ObjectType;
+  side: 'a-only' | 'b-only';   // which side can see it
+  reason: 'grant-invisible';    // one reason only; invisibility has no polymorphic branches
+}
+
+export interface CompareVisibility {
+  excluded: ExcludedObject[];
+  compared: number;
+  reliable: boolean;
+}
 
 export type CoverageReason =
   | 'permission-denied'   // MySQL access denied (errno 1044/1142/1143/1227/1370, ER_*ACCESS_DENIED*)
@@ -38,6 +60,7 @@ export interface CompareResult {
   dataTables?: DataTableStatus[];
   source?: ResultSource;      // absent reads as 'real'
   coverage?: StructureCoverage; // absent means coverage was not collected
+  visibility?: CompareVisibility; // absent means the comparison scope was not assessed
 }
 ```
 
@@ -52,16 +75,24 @@ export interface CompareResult {
 | `code === 'ABORTED'` | `aborted` | same skip, reported to the user |
 | Unrecognized error shape | `unknown` | same skip; never leaks the raw error |
 | `Promise.reject()` with no value | `unknown` | classification must not depend on `err === undefined` |
+| `SHOW GRANTS FOR CURRENT_USER()` throws or returns nothing | `reliable: false` | `visibilityFor` returns `partial`; comparison narrows instead of rejecting |
+| Grant line is a MySQL 8.0 `GRANT \`role\` TO` (no `ON`) | `reliable: false` | same narrowing; role grants are never expanded or guessed |
+| Grant line shape is unrecognized | `reliable: false` | same narrowing; do not attempt partial interpretation |
+| Object present on one side only, either side not `full` | `ExcludedObject { side }` | no CREATE/DROP; listed in `visibility.excluded` |
+| Both sides `full` for the compared databases | no exclusion | snapshot passed through by reference; output byte-identical to the pre-fix path |
 
 ### Good / base / bad
 
-- **Good**: a real comparison returns `source: 'real'` and a `coverage` whose `skipped` matches the permission-blind tables.
-- **Base**: `runDemoCompare` returns `source: 'demo'` with no `coverage`; `compareRun` and `postFilterResult` construct results with `source` undefined.
+- **Good**: a real comparison returns `source: 'real'`, a `coverage` whose `skipped` matches the permission-blind objects, and a `visibility` whose `compared` is the scope actually diffed.
+- **Base**: `runDemoCompare` returns `source: 'demo'` with no `coverage`/`visibility`; `compareRun` and `postFilterResult` construct results with `source`, `coverage`, and `visibility` undefined.
 - **Bad**: a new result producer forgets `source`; the result silently reads as real.
+- **Bad**: a new result producer narrows or widens the compared scope without reporting it. If `items` came from a reduced object set, `visibility` must say so.
 
 ### Tests required
 
 `classifyCoverageReason` branches; `fetchMetadata` producing each reason; `mergeCoverage` accumulation and `scopes` filtering; null-skip never producing a false CREATE/DROP; `runDemoCompare` marked `demo`; the `no-ipc`-versus-real-failure fork in `store.runCompare`. The real path's `source: 'real'` needs real pools, so it is asserted indirectly through the default semantics until the compare/data service integration tests exist.
+
+`parseGrantLines` must cover every branch of the table in [Database Guidelines](../backend/database-guidelines.md#snapshot-and-direction-semantics), including a control case that shows the un-narrowed input still produces `DROP TABLE`. `narrowToSharedVisibility` must be tested for the "both sides `full`" pass-through, since that is the path existing database-level-grant users depend on.
 
 ### Wrong vs correct
 
@@ -78,6 +109,25 @@ const collect = async (name, objectType, run) => {
   try { const v = await run(); return { v, skip: v == null }; }
   catch (err) { return { v: null, skip: { name, objectType, reason: classifyCoverageReason(err) } }; }
 };
+
+// Wrong: failing open. An unprovable assessment treated as "complete" is how a
+// false DROP TABLE gets re-admitted, so the conservative default must be narrowing.
+const visibilityFor = (a: VisibilityAssessment) => a.reliable ? 'full' : 'full';
+
+// Wrong: assuming the grant list is closed, so a database absent from it is complete
+const visibilityFor = (a: VisibilityAssessment, db: string) => a.byDatabase[db] ?? 'full';
+
+// Wrong: falling back to a case-insensitive database-name match. With
+// lower_case_table_names = 0 (the Linux default) `Foo` and `foo` are two different
+// databases, so a grant on `Foo` proves nothing about `foo` — and a fabricated
+// 'full' skips the narrowing that is the only thing preventing a false DROP.
+const visibilityFor = (a: VisibilityAssessment, db: string) =>
+  Object.entries(a.byDatabase).find(([k]) => k.toLowerCase() === db.toLowerCase())?.[1] ?? 'full';
+
+// Correct: unreliable or unlisted means partial; only a proven database-level
+// (or global) read grant is 'full'
+const visibilityFor = (a: VisibilityAssessment, db: string) =>
+  a.reliable ? (a.byDatabase[db] ?? a.byDatabase['*'] ?? 'partial') : 'partial';
 ```
 
 ## Runtime Boundaries
