@@ -44,4 +44,13 @@ Do not calculate a separate unselected copy/export list from unfiltered `items`,
 
 ## Preview and Failure State
 
-The seed nodes in `store.ts` and `runDemoCompare` in `demo.ts` support `npm run dev` without Electron. `runCompare` currently falls back to demo results when IPC or a real comparison fails and includes the sanitized reason in the toast. This is current behavior, not proof of a successful database comparison; the known usability limitation is recorded in the archived E2E report. Changes to fallback labeling or behavior require an explicit product decision and UI regression coverage.
+The seed nodes in `store.ts` and `runDemoCompare` in `demo.ts` support `npm run dev` without Electron.
+
+`runCompare` splits its `catch` in two, and `isNoIpc` is the dividing line rather than a toast-wording branch:
+
+- **Development / demo state** (`no-ipc`, no Electron backend): demo results are still filled in. `resultSource` becomes `'demo'` and the status bar is prefixed with `本地示例 ·`.
+- **Real comparison failure** (bad credentials, connectivity, permissions, backend error): no demo fallback. `items` and `dataStatus` are cleared and `resultError` holds the `sanitizeIpcError` output; `App` renders an explicit error card in place of the diff list and points the user back at the A / B node configuration. Showing a well-formed example diff after a failed connection was the defect this replaced.
+
+`resultSource` and `coverage` live in Zustand because they describe the cross-pane result; the coverage detail table's expanded/collapsed state is `App`-local, per the renderer-only split above. The source marker and the coverage counter are permanent footer text — neither depends on the 2.2s toast. When `coverage.skipped` is empty, no coverage affordance renders at all.
+
+Changes to fallback labeling or behavior still require an explicit product decision and UI regression coverage; the demo-fallback misread recorded in the archived E2E report is resolved in behavior (no fallback on real failure) but only covered here by unit tests for the source marker. Interactive verification of the error card, the footer counter, and the expandable detail table belongs to the CDP pass.

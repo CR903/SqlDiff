@@ -12,7 +12,73 @@ Main-process modules use default imports for Node built-ins (`fs`, `path`, and `
 - Put bridge-only inputs and the exposed API beside the bridge in `src-main/preload.ts`: `NodeCreateInput`, `NodeUpdateInput`, `DataTableLists`, `CompareProgressEvent`, and `SqlDiffApi`.
 - Keep module-specific result shapes near their module, such as `RiskAssessment` in `risk.ts`, `TunnelEntry` in `connection.ts`, and `FetchAllOptions` in `data-fetch.ts`.
 - Use `import type` for type-only cross-layer imports. `App.tsx`, `store.ts`, and `sql.ts` import bridge types from `preload.ts`; `compare.ts` and `demo.ts` import `DatabaseMetadata` from `metadata.ts` as a type.
-- Use literal unions and discriminated decisions rather than broad strings. `ChangeType`, `StmtAspect`, `Verb`, and `DataTableStatusKind` are declared in `src-core/types.ts`; `IdentityDecision` is declared in `src-main/data-run.ts`.
+- Use literal unions and discriminated decisions rather than broad strings. `ChangeType`, `StmtAspect`, `Verb`, `DataTableStatusKind`, `ResultSource`, and `CoverageReason` are declared in `src-core/types.ts`; `IdentityDecision` is declared in `src-main/data-run.ts`.
+
+## Result Source and Coverage Contract
+
+`CompareResult` gained optional `source` and `coverage` fields. They are optional by design, so treat them as load-bearing at every producer.
+
+### Signatures
+
+```ts
+export type ResultSource = 'real' | 'demo';
+
+export type CoverageReason =
+  | 'permission-denied'   // MySQL access denied (errno 1044/1142/1143/1227/1370, ER_*ACCESS_DENIED*)
+  | 'object-missing'      // SHOW CREATE returned no row/column, or the object vanished mid-scan
+  | 'aborted'             // code === 'ABORTED' (aligns with data-run.isAbortErr)
+  | 'unknown';            // anything else — the catch-all, never an errno passthrough
+
+export interface CoverageSkip { name: string; objectType: ObjectType; reason: CoverageReason }
+export interface StructureCoverage { ok: Record<ObjectType, number>; skipped: CoverageSkip[] }
+
+export interface CompareResult {
+  items: DiffItem[];
+  stats: CompareStats;
+  dataTables?: DataTableStatus[];
+  source?: ResultSource;      // absent reads as 'real'
+  coverage?: StructureCoverage; // absent means coverage was not collected
+}
+```
+
+`fetchMetadata` in `src-main/metadata.ts` returns `MetadataSnapshot { meta, skipped }` instead of a bare `DatabaseMetadata`. `meta` keeps its `Record<string, string | null>` shape — that shape is the null-skip invariant documented in [Database Guidelines](../backend/database-guidelines.md), do not flatten it.
+
+### Validation and error matrix
+
+| Condition | Classification | Result effect |
+|---|---|---|
+| `SHOW CREATE` returns no usable text | `object-missing` | `meta[name] = null`; object skipped by `compareRun` |
+| MySQL access-denied errno/code | `permission-denied` | same skip, reported to the user |
+| `code === 'ABORTED'` | `aborted` | same skip, reported to the user |
+| Unrecognized error shape | `unknown` | same skip; never leaks the raw error |
+| `Promise.reject()` with no value | `unknown` | classification must not depend on `err === undefined` |
+
+### Good / base / bad
+
+- **Good**: a real comparison returns `source: 'real'` and a `coverage` whose `skipped` matches the permission-blind tables.
+- **Base**: `runDemoCompare` returns `source: 'demo'` with no `coverage`; `compareRun` and `postFilterResult` construct results with `source` undefined.
+- **Bad**: a new result producer forgets `source`; the result silently reads as real.
+
+### Tests required
+
+`classifyCoverageReason` branches; `fetchMetadata` producing each reason; `mergeCoverage` accumulation and `scopes` filtering; null-skip never producing a false CREATE/DROP; `runDemoCompare` marked `demo`; the `no-ipc`-versus-real-failure fork in `store.runCompare`. The real path's `source: 'real'` needs real pools, so it is asserted indirectly through the default semantics until the compare/data service integration tests exist.
+
+### Wrong vs correct
+
+```ts
+// Wrong: tolerant-style catch that discards the error, so the gap is invisible
+const tolerant = (p: Promise<string | null>) => p.catch(() => null);
+
+// Wrong: propagating the driver error into a renderer-visible contract
+skipped.push({ name, objectType, reason: String(err) });
+
+// Correct: classify at the boundary, keep the coarse code in the contract,
+// and still write null so the null-skip invariant holds
+const collect = async (name, objectType, run) => {
+  try { const v = await run(); return { v, skip: v == null }; }
+  catch (err) { return { v: null, skip: { name, objectType, reason: classifyCoverageReason(err) } }; }
+};
+```
 
 ## Runtime Boundaries
 

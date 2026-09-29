@@ -11,7 +11,8 @@ There is no HTTP error response. Main-process failures reject the `ipcRenderer.i
 | One data table cannot be read | `DataTableStatus` with `status: 'error'` and `reason: 'fetch-failed'` | `DataSection` without aborting other tables |
 | A table exceeds the row limit | `DataThresholdError`, then `DataTableStatus` with `status: 'confirm-needed'` | UI asks for confirmation and reruns |
 | User cancels a data fetch | `Error` with `code = 'ABORTED'` or name `AbortError` | `data-run.isAbortErr` stops the run |
-| A single `SHOW CREATE` fails | `null` in `DatabaseMetadata` | `compareRun` skips that object |
+| A single `SHOW CREATE` fails | `null` in `DatabaseMetadata`, plus a `CoverageSkip {name, objectType, reason}` in `MetadataSnapshot.skipped` | `compareRun` skips that object; `CompareResult.coverage` reports the gap |
+| A real comparison fails while the app has no backend | demo results with `source: 'demo'` | `store.runCompare` development path only; status bar prefixes `本地示例 ·` |
 | Clipboard write fails | `sql.copy` returns `false` | `copyText` falls back to browser clipboard/`execCommand` |
 
 ## Validation Before Side Effects
@@ -32,11 +33,12 @@ There is no HTTP error response. Main-process failures reject the `ipcRenderer.i
 - Put resource cleanup in `finally`. Once their pool references are assigned, `runCompareRequest`, `runDataCompare`, and `main.ts`'s `data.tables` handler close them regardless of outcome; `pingDirect` / `pingViaTunnel` likewise close their temporary connections. The partial pool-construction gap is documented in [Database Guidelines](./database-guidelines.md).
 - Use `Promise.allSettled` for independent cleanup so one close failure hides neither the result nor another cleanup error.
 - Catch only where the product has an explicit policy:
-  - `fetchMetadata` converts per-object `SHOW CREATE` failures to `null`;
+  - `fetchMetadata` converts per-object `SHOW CREATE` failures to `null` and records a coarse `CoverageReason` (`permission-denied` / `object-missing` / `aborted` / `unknown`) in the snapshot's `skipped` list, so a permission blind spot is reported rather than looking like "no difference"; raw MySQL errors never reach the renderer;
   - `runDataCompare` records a failed table and continues;
   - `appendHistory` failure does not block a successful comparison;
   - renderer progress unsubscribe and best-effort star/use-count persistence ignore secondary failures.
-- Do not treat a failed real comparison as a successful real result. The current `store.runCompare` deliberately falls back to demo data when IPC or a real comparison fails and includes the sanitized reason in the toast and last-combo text. This is a known fallback, not proof of a successful database comparison; the archived E2E report notes that it can be misread, so changes to this path need explicit product review and UI regression coverage.
+- Do not treat a failed real comparison as a successful real result. `store.runCompare` splits its `catch` on `isNoIpc`, which is the semantic dividing line rather than a message-wording branch: the `no-ipc` development state still falls back to demo data and marks it `source: 'demo'`, while **any** real failure (credentials, connectivity, permissions, backend error) clears `items` and renders an explicit error card carrying the `sanitizeIpcError` output. Filling in demo items after a failed connection was the defect this replaced; the archived E2E report recorded how it could be misread. Changes to this path still need explicit product review and UI regression coverage.
+- Keep the demo marker honest. `source` is optional on `CompareResult` and a missing value reads as `'real'`, because `compareRun` and `postFilterResult` construct results inside `src-core` and cannot know their caller. `compare-run.ts` therefore marks the real path explicitly and `src-renderer/demo.ts:runDemoCompare` is the single demo marker. When adding a new result producer, set `source` rather than relying on the default.
 
 ## Renderer Handoff
 
