@@ -41,6 +41,7 @@ function resetStore(): void {
     selectedId: null,
     resultSource: null,
     coverage: null,
+    visibility: null,
     resultError: null,
     lastComboText: '',
     toast: null,
@@ -62,6 +63,7 @@ describe('runCompare：开发/演示态（no-ipc）', () => {
     expect(s.resultSource).toBe('demo');
     expect(s.resultError).toBeNull();
     expect(s.coverage).toBeNull();
+    expect(s.visibility).toBeNull();
     expect(s.lastComboText).toContain('本地示例数据');
     expect(s.comparing).toBe(false);
   });
@@ -84,12 +86,18 @@ describe('runCompare：真实比较失败（Q1 分流）', () => {
     expect(s.resultError).not.toContain('Error invoking');
     expect(s.resultSource).toBeNull();
     expect(s.coverage).toBeNull();
+    expect(s.visibility).toBeNull();
     expect(s.lastComboText).toContain('对比失败');
     expect(s.comparing).toBe(false);
   });
 
   it('失败后残留的旧结果/错误态在下一次运行时一并被替换（不复用陈旧示例）', async () => {
-    useDesktopStore.setState({ items: [{ id: 'x' } as never], resultSource: 'demo', coverage: null });
+    useDesktopStore.setState({
+      items: [{ id: 'x' } as never],
+      resultSource: 'demo',
+      coverage: null,
+      visibility: { excluded: [], compared: 3, reliable: true },
+    });
     vi.stubGlobal('window', {
       sqldiff: stubApi(async () => {
         throw new Error('compare: 连接失败');
@@ -133,5 +141,35 @@ describe('runCompare：真实成功', () => {
     expect(s.coverage?.skipped[0].reason).toBe('permission-denied');
     // 覆盖明细本身不含 errno / 原始 message 等敏感内容。
     expect(JSON.stringify(s.coverage)).not.toMatch(/errno|Access denied|SELECT command/i);
+  });
+
+  it('授权盲区范围报告原样落库：excluded 带对象名/类型/哪侧可见（AC3 / AC4）', async () => {
+    const vis = {
+      excluded: [
+        { name: 'secret_tbl', objectType: 'table' as const, side: 'b-only' as const, reason: 'grant-invisible' as const },
+      ],
+      compared: 1,
+      reliable: true,
+    };
+    vi.stubGlobal('window', { sqldiff: stubApi(async () => result({ source: 'real', visibility: vis })) });
+    await useDesktopStore.getState().runCompare();
+    const s = useDesktopStore.getState();
+    expect(s.visibility).toEqual(vis);
+    expect(s.visibility?.excluded[0].side).toBe('b-only');
+    // 范围报告只带判别结论与对象名，不带授权原文 / 凭据 / 连接串。
+    expect(JSON.stringify(s.visibility)).not.toMatch(/GRANT|IDENTIFIED|PASSWORD|password|3306/);
+  });
+
+  it('判据不可靠时范围报告照常落库（reliable=false 驱动更强措辞，不静默）', async () => {
+    const vis = { excluded: [], compared: 12, reliable: false };
+    vi.stubGlobal('window', { sqldiff: stubApi(async () => result({ source: 'real', visibility: vis })) });
+    await useDesktopStore.getState().runCompare();
+    expect(useDesktopStore.getState().visibility).toEqual(vis);
+  });
+
+  it('结果缺省 visibility 时置 null（老主进程/无采集路径不产生范围提示）', async () => {
+    vi.stubGlobal('window', { sqldiff: stubApi(async () => result({ source: 'real' })) });
+    await useDesktopStore.getState().runCompare();
+    expect(useDesktopStore.getState().visibility).toBeNull();
   });
 });

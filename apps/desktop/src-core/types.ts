@@ -210,6 +210,47 @@ export type ResultSource = 'real' | 'demo';
  */
 export type CoverageReason = 'permission-denied' | 'object-missing' | 'aborted' | 'unknown';
 
+/**
+ * 单库可见性完整度（授权盲区判定，见 src-core/visibility.ts）：
+ * - full：可证明该库对象全量可见（库级 SELECT / ALL PRIVILEGES 授权，或全局授权）
+ * - partial：可证明存在不可见对象（表级授权），或完整性无法证明（保守默认）
+ *
+ * 语义方向不可颠倒：判据不可靠时一律退向 partial（收窄比较范围），
+ * 绝不退向 full（放行基于无知推断出的 DROP TABLE）。
+ */
+export type Visibility = 'full' | 'partial';
+
+/** 账号在一批库上的可见性判定结果（由 SHOW GRANTS FOR CURRENT_USER() 解析得到）。 */
+export interface VisibilityAssessment {
+  /** 库名 → 判定。未列出的库视为 'partial'（默认保守，见 visibilityFor）。 */
+  byDatabase: Record<string, Visibility>;
+  /** 判据是否可靠：false 表示查询失败、输出无法解析或存在角色授权，一律按 partial 处理。 */
+  reliable: boolean;
+}
+
+/**
+ * 一个因授权不可见而无法比较的单侧对象。
+ * 不可见对象连名字都无从获得，因此「真的不存在」不可判定 —— 只能列为无法比较，
+ * 不得让 compareRun 把它当成 missing 侧生成 CREATE/DROP（那正是本任务要归零的假 DROP）。
+ */
+export interface ExcludedObject {
+  name: string;
+  objectType: ObjectType;
+  /** 哪一侧可见（另一侧不可见）。 */
+  side: 'a-only' | 'b-only';
+  reason: 'grant-invisible';
+}
+
+/** 比较范围报告：实际进入了比较的对象，以及因授权盲区被排除的单侧对象。 */
+export interface CompareVisibility {
+  /** 被排除的单侧不可见对象。 */
+  excluded: ExcludedObject[];
+  /** 实际进入比较的对象总数（收窄后的对象集，按类型 + 名称去重计数）。 */
+  compared: number;
+  /** 判据是否可靠；false 时界面需更强的提示措辞。 */
+  reliable: boolean;
+}
+
 /** 一个未取到 SHOW CREATE 的结构对象（比较中被跳过，不参与 diff）。 */
 export interface CoverageSkip {
   /** 对象名 */
@@ -243,4 +284,10 @@ export interface CompareResult {
   source?: ResultSource;
   /** 结构覆盖报告；缺省表示未采集（兼容既有构造点）。 */
   coverage?: StructureCoverage;
+  /**
+   * 授权盲区导致的比较范围报告；缺省表示未采集（demo 路径不产出）。
+   * 与 coverage 分工：coverage 记「列举得到但 SHOW CREATE 失败」，
+   * visibility 记「因授权根本列举不到、无法证明存在与否」的单侧对象。
+   */
+  visibility?: CompareVisibility;
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { VERB_CHIPS, useDesktopStore, type AspectFilter, type DiffFilter, type LeftTab, type ObjectTypeFilter, type SlotId, type VerbFilter } from './store';
-import type { CoverageReason, DataTableStatus, DiffItem, HistoryEntry, NodeMeta, ObjectType, ObjectTypeWithData, SecretBundle, StmtAspect, Verb } from '../src-core/types';
+import type { CoverageReason, DataTableStatus, DiffItem, ExcludedObject, HistoryEntry, NodeMeta, ObjectType, ObjectTypeWithData, SecretBundle, StmtAspect, Verb } from '../src-core/types';
 import { sanitizeIpcError } from '../src-core/ipc-error';
 import { verbOf } from '../src-core/classify';
 import { visibleNodes } from './node-filter';
@@ -653,6 +653,14 @@ function coverageReasonText(r: CoverageReason): string {
   if (r === 'object-missing') return '对象已不存在';
   if (r === 'aborted') return '已取消';
   return '未知原因';
+}
+
+/**
+ * 被排除对象的哪一侧可见（ExcludedObject.side 的中文）。
+ * 反直觉但必须直说：可见的那一侧正是「本该进入比较、却因另一侧授权不足拿不到」的一侧。
+ */
+function excludedSideText(s: ExcludedObject): string {
+  return s.side === 'b-only' ? '仅 B 侧可见' : '仅 A 侧可见';
 }
 
 function dataStatusText(s: DataTableStatus): string {
@@ -1408,6 +1416,7 @@ export default function App() {
   const lastComboText = useDesktopStore((s) => s.lastComboText);
   const resultSource = useDesktopStore((s) => s.resultSource);
   const coverage = useDesktopStore((s) => s.coverage);
+  const visibility = useDesktopStore((s) => s.visibility);
   const resultError = useDesktopStore((s) => s.resultError);
   const toast = useDesktopStore((s) => s.toast);
 
@@ -1453,6 +1462,8 @@ export default function App() {
   const [latencies, setLatencies] = useState<Record<string, number>>({});
   // 覆盖明细展开态：renderer-only UI 状态（state-management.md：不进 Zustand）。
   const [coverageOpen, setCoverageOpen] = useState(false);
+  // 授权盲区明细展开态：同为 renderer-only UI 状态（与覆盖明细分开，两张卡各自开合）。
+  const [visibilityOpen, setVisibilityOpen] = useState(false);
 
   // 首屏：经 IPC 拉节点 + 历史（失败则保留种子/空历史，离线可用）。
   useEffect(() => {
@@ -1583,12 +1594,22 @@ export default function App() {
 
   // 覆盖跳过计数：仅在存在未检查对象时出现；全部成功时界面保持安静。
   const skippedCount = (coverage?.skipped.length ?? 0);
+  // 授权盲区（比较范围）提示：excluded 非空 → 有对象因授权未参与比较；
+  // reliable=false → 连"是否完整"都无法证明，措辞必须更强（绝不暗示范围已完整）。
+  // 两者都不成立（excluded 为空且判据可靠）→ 不渲染任何提示位，界面保持安静。
+  const visExcludedCount = visibility?.excluded.length ?? 0;
+  const visUnreliable = visibility != null && !visibility.reliable;
+  const visShow = visibility != null && (visExcludedCount > 0 || visUnreliable);
+  const visCompared = visibility?.compared ?? 0;
   // 来源标识常驻状态行（不依赖 2.2s toast）；真实成功无前缀，避免噪音。
   const sourcePrefix = resultSource === 'demo' ? '本地示例 · ' : '';
   // 每次新结果都收起明细（结果替换即重置，与 resultError 同批）。
   useEffect(() => {
     setCoverageOpen(false);
   }, [coverage]);
+  useEffect(() => {
+    setVisibilityOpen(false);
+  }, [visibility]);
 
   const status = comparing
     ? (progress || '对比中…')
@@ -1765,6 +1786,42 @@ export default function App() {
             </div>
           )}
           {/*
+            授权盲区明细（常驻计数在 footer，此处仅在用户点开时渲染）：
+            复用覆盖卡片的 coverage-card / data-status-row / st-skipped 行式，不新增独立面板。
+            excluded 为空且判据可靠时整块不出现，界面保持安静。
+          */}
+          {visShow && visibilityOpen && visibility && (
+            <div className="card coverage-card">
+              <div className="coverage-head">
+                {visUnreliable
+                  ? `授权范围无法确认，已按最保守范围比较：仅比较 A / B 双方均可见的 ${visCompared} 个对象`
+                  : `本次比较范围为 A / B 双方均可见的 ${visCompared} 个对象`}
+                {visExcludedCount > 0 &&
+                  `；以下 ${visExcludedCount} 个对象因连接账号的授权看不到另一侧，未参与比较（不会据此生成 CREATE / DROP）`}
+              </div>
+              {visExcludedCount === 0 && (
+                <div className="hint">
+                  本次没有对象因授权被排除。此提示只说明「比较范围未能被证明完整」，
+                  已按双方均可见的对象集合比较；它不代表两个 schema 一致。
+                </div>
+              )}
+              <div className="data-status" role="table" aria-label="因授权未参与比较的对象明细">
+                {visibility.excluded.map((x, i) => (
+                  <div
+                    className="data-status-row st-skipped"
+                    key={`${x.objectType}:${x.name}:${x.side}:${i}`}
+                    title="该对象只有一侧可见，无法判断它是否真的存在于另一侧"
+                  >
+                    <span className="mono">
+                      {x.name} <span className="hint">{OBJECT_TYPE_LABEL[x.objectType]}</span>
+                    </span>
+                    <span>{excludedSideText(x)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {/*
             真实比较失败（Q1 决策）：结果区渲染显式错误卡，替代差异列表 ——
             同时避免 DiffTable 的「空空如也」空态被误读成「两库一致」。
           */}
@@ -1821,6 +1878,8 @@ export default function App() {
         状态行（常驻，不依赖 2.2s toast）：
         - 来源前缀：demo → 「本地示例 · 」；真实成功不加前缀（失败时 lastComboText 本身写「对比失败」）。
         - 覆盖计数：仅在存在未检查对象时出现，点击展开/收起中栏明细；全部成功时不渲染任何提示位。
+        - 比较范围：excluded 非空 → 「N 个对象因授权未参与比较」；判据不可靠 → 更强措辞
+          「授权范围无法确认，已按最保守范围比较」。excluded 为空且判据可靠时不渲染。
       */}
       <footer className="statusbar">
         <span>{status}</span>
@@ -1832,6 +1891,19 @@ export default function App() {
             title={coverageOpen ? '收起未检查对象明细' : '查看未检查对象明细'}
           >
             · {skippedCount} 个对象未检查{coverageOpen ? '（收起明细）' : '（查看明细）'}
+          </button>
+        )}
+        {visShow && (
+          <button
+            className="linkish"
+            onClick={() => setVisibilityOpen((v) => !v)}
+            aria-expanded={visibilityOpen}
+            title={visibilityOpen ? '收起比较范围明细' : '查看比较范围明细'}
+          >
+            {visUnreliable
+              ? '· 授权范围无法确认，已按最保守范围比较'
+              : `· ${visExcludedCount} 个对象因授权未参与比较`}
+            {visibilityOpen ? '（收起明细）' : '（查看明细）'}
           </button>
         )}
       </footer>

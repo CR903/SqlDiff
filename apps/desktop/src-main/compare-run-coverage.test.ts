@@ -57,15 +57,18 @@ describe('mergeCoverage', () => {
 });
 
 describe('来源标注', () => {
-  it('demo 结果标 source=demo 且不产出 coverage', () => {
+  it('demo 结果标 source=demo 且不产出 coverage / visibility', () => {
     const demo: CompareResult = runDemoCompare(['table', 'view', 'procedure', 'function']);
     expect(demo.source).toBe('demo');
     expect(demo.coverage).toBeUndefined();
+    expect(demo.visibility).toBeUndefined();
   });
 
-  it('core 内 compareRun 缺省 source（由边界层标注，缺省即 real）', () => {
+  it('core 内 compareRun 缺省 source / coverage / visibility（由边界层标注，缺省即 real）', () => {
     const base = compareRun({ tables: {}, views: {}, procedures: {}, functions: {} }, { tables: {}, views: {}, procedures: {}, functions: {} });
     expect(base.source).toBeUndefined();
+    expect(base.coverage).toBeUndefined();
+    expect(base.visibility).toBeUndefined();
   });
 });
 

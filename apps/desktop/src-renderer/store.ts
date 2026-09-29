@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { ChangeType,
+  CompareVisibility,
   ConnTestResult,
   DataTablePair,
   DataTableStatus,
@@ -188,6 +189,11 @@ interface DesktopState {
   /** 上次结果的结构覆盖报告；null=未采集（demo 路径不产出）。 */
   coverage: StructureCoverage | null;
   /**
+   * 上次结果的比较范围报告（授权盲区）；null=未采集（demo 路径不产出）。
+   * 描述跨栏结果，故入 Zustand；明细展开态是 renderer-only，归 App 局部 useState。
+   */
+  visibility: CompareVisibility | null;
+  /**
    * 真实比较失败的显式错误态（已 sanitize 的中文原因）；null=无错误。
    * 非 no-ipc 的失败不再回填示例数据，结果列表清空并展示此原因。
    */
@@ -273,6 +279,7 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
   lastComboText: '',
   resultSource: null,
   coverage: null,
+  visibility: null,
   resultError: null,
   toast: null,
   setLeftTab: (t) => set({ leftTab: t }),
@@ -602,6 +609,7 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
           confirmDataThreshold: false,
           resultSource: result.source ?? 'real',
           coverage: result.coverage ?? null,
+          visibility: result.visibility ?? null,
           resultError: null,
           lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · ${scopes.join('/')}${includeData ? '/data' : ''} · ${new Date().toLocaleTimeString()} · ${result.stats.ALL} 条差异${dataNote}`,
           toast: needConfirm
@@ -644,6 +652,7 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
           confirmDataThreshold: false,
           resultSource: demo.source ?? 'demo',
           coverage: null,
+          visibility: null,
           resultError: null,
           lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · 本地示例数据`,
           toast: `已用本地示例数据演示（${demo.stats.ALL} 条，数据对比需 Electron 后端）`,
@@ -659,6 +668,7 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
         confirmDataThreshold: false,
         resultSource: null,
         coverage: null,
+        visibility: null,
         resultError: clean,
         lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · 对比失败`,
         toast: `后端对比失败：${clean}`,
