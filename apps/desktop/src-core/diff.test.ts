@@ -262,10 +262,9 @@ describe('compareRun 组装/统计/排序', () => {
     expect(r.items[0]?.objectName).toBe('p_old');
     expect(r.items[1]?.objectName).toBe('users');
     expect(r.items[2]?.objectName).toBe('v1');
-    // 表条目语句级 id（含 :s<n> 后缀），例程保持原子 id；全量 DDL。
+    // 表条目语句级 id（含 :s<n> 后缀），例程保持原子 id。
     expect(r.items.map((i) => i.id)).toEqual(['procedure:p_old', 'table:users:s0', 'view:v1']);
     for (const item of r.items) {
-      expect(item.stmtKind).toBe('DDL');
       expect(item.aspects).toHaveLength(1);
       expect(item.explain).toBeTruthy();
     }

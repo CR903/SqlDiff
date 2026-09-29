@@ -16,9 +16,6 @@ export type DmlType = 'INSERT' | 'DELETE' | 'UPDATE';
 
 export type RiskLevel = 'high' | 'medium' | 'low';
 
-/** 语句维度：结构对象一律 DDL，数据行一律 DML（R1 一级维度）。 */
-export type StmtKind = 'DDL' | 'DML';
-
 /**
  * 语句切面（单语句独立打标）：
  * - column：ADD/DROP/CHANGE/MODIFY COLUMN
@@ -93,8 +90,6 @@ export interface DiffItem {
   changeType: ChangeType;
   /** 仅 objectType==='data' 时有值，对应独立 INSERT/DELETE/UPDATE 三 Tab。 */
   dml?: DmlType;
-  /** 语句维度：objectType==='data' 即 DML，其余 DDL（R1）。 */
-  stmtKind: StmtKind;
   /** 语句切面（单语句条目恒 1 个，数组为以后多语句合并留余；R3）。 */
   aspects: StmtAspect[];
   risk: RiskLevel;

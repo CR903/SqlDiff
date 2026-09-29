@@ -77,7 +77,6 @@ function makeItem(pair: DataTablePair, dml: DmlType, index: number, sql: string)
     objectName: displayName(pair.a, pair.b),
     changeType: DML_CHANGE[dml],
     dml,
-    stmtKind: 'DML',
     aspects: ['data'],
     risk: DML_RISK[dml],
     sql,

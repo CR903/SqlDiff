@@ -38,12 +38,6 @@ const DIFF_TABS: Array<{ value: DiffFilter; label: string }> = [
   { value: 'CHANGE', label: 'CHANGE' },
 ];
 
-/** R7 动词 chips 分组展示（DDL组 + DML组；OTHER 无桶不展示）。 */
-const VERB_GROUPS: Array<{ label: string; verbs: Verb[] }> = [
-  { label: 'DDL', verbs: VERB_CHIPS.slice(0, 3) },
-  { label: 'DML', verbs: VERB_CHIPS.slice(3) },
-];
-
 /** R4 对象 chips（多选含数据行；组内 OR、组间 AND；复制/导出与单表行同源）。 */
 const OBJ_CHIPS: Array<{ value: ObjectTypeWithData; label: string }> = [
   { value: 'table', label: '表' },
@@ -592,26 +586,19 @@ function DiffTable({
           INDEX ({indexCount})
         </button>
       </div>
-      <div className="obj-filters" title="按语句首动词过滤（CREATE/DROP/ALTER/INSERT/UPDATE/DELETE 多选；与对象/切面/Tab/关键字正交 AND；复制=所见）">
+      <div className="obj-filters" title="按语句首动词过滤（CREATE/DROP/ALTER/INSERT/UPDATE/DELETE 多选；与对象/切面/Tab/关键字正交 AND；复制=所见）。与上方 Tab 的区别：Tab 看整条 SQL 的变更结果（CREATE/DROP/CHANGE），此处只看首关键字 —— 如 CREATE OR REPLACE 视图变更归 Tab CHANGE + 动词 CREATE。">
         <span className="diff-stat" style={{ marginLeft: 0 }}>
           动词
         </span>
-        {VERB_GROUPS.map((g) => (
-          <span key={g.label} style={{ display: 'contents' }}>
-            <span style={{ fontSize: 12, color: '#64748b', alignSelf: 'center' }} title={g.label === 'DDL' ? '结构语句动词' : '数据语句动词'}>
-              {g.label}
-            </span>
-            {g.verbs.map((v) => (
-              <button
-                key={v}
-                className={isVerbOn(v) ? 'chip active' : 'chip'}
-                title={`只看 ${v} 开头语句（当前 ${verbCounts[v]} 条）`}
-                onClick={() => onToggleVerb(v)}
-              >
-                {v} ({verbCounts[v]})
-              </button>
-            ))}
-          </span>
+        {VERB_CHIPS.map((v) => (
+          <button
+            key={v}
+            className={isVerbOn(v) ? 'chip active' : 'chip'}
+            title={`只看 ${v} 开头语句（当前 ${verbCounts[v]} 条）`}
+            onClick={() => onToggleVerb(v)}
+          >
+            {v} ({verbCounts[v]})
+          </button>
         ))}
       </div>
       <div className="diff-scroll">

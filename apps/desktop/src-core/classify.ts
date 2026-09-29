@@ -8,7 +8,7 @@
 // - 含 CREATE 且无 DROP 归 CREATE；
 // - 其余（ALTER / CHANGE / ADD 等）归 CHANGE。
 
-import type { ChangeType, ObjectType, StmtAspect, StmtKind, Verb } from './types';
+import type { ChangeType, StmtAspect, Verb } from './types';
 
 const RE_DROP = /\bDROP\s+(TABLE|PROCEDURE|FUNCTION|VIEW|INDEX|COLUMN|PRIMARY)\b/i;
 const RE_CREATE = /\bCREATE\b/i;
@@ -31,11 +31,6 @@ const RE_ASPECT_INDEX_ADD = /\bADD\s+(UNIQUE\s+|FULLTEXT\s+|SPATIAL\s+)?(INDEX|K
 const RE_ASPECT_INDEX_DROP = /\bDROP\s+(INDEX|KEY)\b/i;
 const RE_ASPECT_COLUMN = /\b(ADD|DROP|CHANGE|MODIFY)\s+COLUMN\b/i;
 const RE_ASPECT_TABLE = /\b(CREATE|DROP)\s+TABLE\b/i;
-
-/** 对象类型 -> 语句维度：数据行 DML，其余 DDL。 */
-export function stmtKindOf(objectType: ObjectType | 'data'): StmtKind {
-  return objectType === 'data' ? 'DML' : 'DDL';
-}
 
 /**
  * R3 单语句切面判定（Q1：PRIMARY KEY 增删归 primary 不归 index；UNIQUE 归 index）。

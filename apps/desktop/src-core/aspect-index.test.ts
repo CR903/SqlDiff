@@ -1,7 +1,7 @@
-// DDL/DML/INDEX 三维过滤单测（R1-R5）：语句拆分 + 切面判定 + 维度过滤组合 + 复制=所见。
+// 切面/INDEX 过滤单测（R3-R5）：语句拆分 + 切面判定 + 维度过滤组合 + 复制=所见。
 import { describe, expect, it } from 'vitest';
 import type { DatabaseMetadata } from '../src-main/metadata';
-import { aspectOf, classify, stmtKindOf } from './classify';
+import { aspectOf, classify } from './classify';
 import { compareRun, toExportSql } from './compare';
 import { postFilterResult, recountStats } from './compare-filter';
 import { splitStatements } from './diff';
@@ -90,14 +90,6 @@ describe('aspectOf 切面判定', () => {
   });
 });
 
-describe('stmtKindOf 维度', () => {
-  it("data -> DML，其余 -> DDL", () => {
-    expect(stmtKindOf('data')).toBe('DML');
-    expect(stmtKindOf('table')).toBe('DDL');
-    expect(stmtKindOf('view')).toBe('DDL');
-  });
-});
-
 describe('compareRun 一表多语句拆分（加列+加索引 -> 两条）', () => {
   const r = compareRun(meta({ tables: { users: T_WITH_COL_AND_IDX } }), meta({ tables: { users: T_BASE } }));
 
@@ -106,7 +98,7 @@ describe('compareRun 一表多语句拆分（加列+加索引 -> 两条）', () 
     expect(r.items.map((i) => i.aspects)).toEqual([['column'], ['index']]);
   });
 
-  it('id 后缀 :s<n> 唯一且保序，每条独立 classify + risk + DDL', () => {
+  it('id 后缀 :s<n> 唯一且保序，每条独立 classify + risk', () => {
     expect(r.items.map((i) => i.id)).toEqual(['table:users:s0', 'table:users:s1']);
     expect(r.items[0]?.sql).toContain('ADD COLUMN `age`');
     expect(r.items[1]?.sql).toContain('ADD INDEX `idx_name`');
@@ -114,7 +106,6 @@ describe('compareRun 一表多语句拆分（加列+加索引 -> 两条）', () 
     expect(classify(r.items[0]?.sql ?? '')).toBe('CHANGE');
     expect(classify(r.items[1]?.sql ?? '')).toBe('CHANGE');
     for (const it of r.items) {
-      expect(it.stmtKind).toBe('DDL');
       expect(it.risk).toBe('low');
       expect(it.explain).toBeTruthy();
     }
@@ -132,15 +123,15 @@ describe('postFilterResult 对象+切面正交组合（R4：对象多选含 data
   const items: DiffItem[] = [
     {
       id: 'table:users:s0', objectType: 'table', objectName: 'users', changeType: 'CHANGE',
-      stmtKind: 'DDL', aspects: ['column'], risk: 'low', sql: 'ALTER TABLE `users` ADD COLUMN `age` int;\n',
+      aspects: ['column'], risk: 'low', sql: 'ALTER TABLE `users` ADD COLUMN `age` int;\n',
     },
     {
       id: 'table:users:s1', objectType: 'table', objectName: 'users', changeType: 'CHANGE',
-      stmtKind: 'DDL', aspects: ['index'], risk: 'low', sql: 'ALTER TABLE `users` ADD INDEX `idx` (`name`);\n',
+      aspects: ['index'], risk: 'low', sql: 'ALTER TABLE `users` ADD INDEX `idx` (`name`);\n',
     },
     {
       id: 'data:users:users:INSERT:0', objectType: 'data', objectName: 'users', changeType: 'CREATE',
-      dml: 'INSERT', stmtKind: 'DML', aspects: ['data'], risk: 'low', sql: 'INSERT INTO `users` VALUES (1);\n',
+      dml: 'INSERT', aspects: ['data'], risk: 'low', sql: 'INSERT INTO `users` VALUES (1);\n',
     },
   ];
 

@@ -54,15 +54,15 @@ function mixed() {
 const DATA_ITEMS: DiffItem[] = [
   {
     id: 'data:users:users:INSERT:0', objectType: 'data', objectName: 'users', changeType: 'CREATE',
-    dml: 'INSERT', stmtKind: 'DML', aspects: ['data'], risk: 'low', sql: 'INSERT INTO `users` VALUES (1);\n',
+    dml: 'INSERT', aspects: ['data'], risk: 'low', sql: 'INSERT INTO `users` VALUES (1);\n',
   },
   {
     id: 'data:users:users:DELETE:0', objectType: 'data', objectName: 'users', changeType: 'DROP',
-    dml: 'DELETE', stmtKind: 'DML', aspects: ['data'], risk: 'low', sql: 'DELETE FROM `users` WHERE `id` = 2;\n',
+    dml: 'DELETE', aspects: ['data'], risk: 'low', sql: 'DELETE FROM `users` WHERE `id` = 2;\n',
   },
   {
     id: 'data:users:users:UPDATE:0', objectType: 'data', objectName: 'users', changeType: 'CHANGE',
-    dml: 'UPDATE', stmtKind: 'DML', aspects: ['data'], risk: 'low', sql: 'UPDATE `users` SET `name` = \'a\' WHERE `id` = 3;\n',
+    dml: 'UPDATE', aspects: ['data'], risk: 'low', sql: 'UPDATE `users` SET `name` = \'a\' WHERE `id` = 3;\n',
   },
 ];
 

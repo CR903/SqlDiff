@@ -6,7 +6,7 @@
 
 import type { DatabaseMetadata } from '../src-main/metadata';
 import type { ChangeType, CompareResult, CompareStats, DiffItem, ObjectType } from './types';
-import { aspectOf, classify, stmtKindOf } from './classify';
+import { aspectOf, classify } from './classify';
 import { diffProcedure, diffTable, splitStatements, type RoutineKind } from './diff';
 import { assessRisk } from './risk';
 
@@ -39,7 +39,6 @@ function makeItem(
     objectType,
     objectName,
     changeType,
-    stmtKind: stmtKindOf(objectType),
     aspects: [aspectOf(sql, objectType === 'table' ? 'table' : 'routine')],
     risk: assessed.risk,
     sql,
