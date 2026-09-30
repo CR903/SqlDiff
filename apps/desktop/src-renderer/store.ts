@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import type { ChangeType,
+  CompareRequest,
+  CompareStats,
   CompareVisibility,
   ConnTestResult,
   DataTablePair,
@@ -175,6 +177,10 @@ interface DesktopState {
   verbFilter: VerbFilter;
   items: DiffItem[];
   selectedId: string | null;
+  /** 上次结果的差异统计（manifest 导出用；与 items 同批替换）。 */
+  stats: CompareStats | null;
+  /** 上次真实成功比较的请求（审查报告导出用）；demo/失败路径清空。 */
+  lastCompareRequest: CompareRequest | null;
   /** 对比进度 */
   comparing: boolean;
   progress: string;
@@ -273,6 +279,8 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
   verbFilter: 'ALL',
   items: [],
   selectedId: null,
+  stats: null,
+  lastCompareRequest: null,
   comparing: false,
   progress: '',
   progressPct: 0,
@@ -576,7 +584,7 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
     try {
       if (api) {
         tick(30, '拉取元数据（information_schema + SHOW CREATE）…');
-        const result = await api.compare.run({
+        const request: CompareRequest = {
           aId: slotA,
           bId: slotB,
           scopes: includeData ? [...scopes, 'data'] : scopes,
@@ -593,7 +601,8 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
                 },
               }
             : {}),
-        });
+        };
+        const result = await api.compare.run(request);
         tick(85, '分类 + 风险评估…');
         const dataNote =
           result.dataTables && result.dataTables.length > 0
@@ -602,6 +611,8 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
         const needConfirm = (result.dataTables ?? []).some((t) => t.status === 'confirm-needed');
         set({
           items: result.items,
+          stats: result.stats,
+          lastCompareRequest: request,
           dataStatus: result.dataTables ?? [],
           selectedId: null,
           diffFilter: 'ALL',
@@ -645,6 +656,8 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
         const demo = runDemoCompare(scopes, tableFilter);
         set({
           items: demo.items,
+          stats: demo.stats,
+          lastCompareRequest: null,
           dataStatus: [],
           selectedId: null,
           diffFilter: 'ALL',
@@ -661,6 +674,8 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
       }
       set({
         items: [],
+        stats: null,
+        lastCompareRequest: null,
         dataStatus: [],
         selectedId: null,
         diffFilter: 'ALL',

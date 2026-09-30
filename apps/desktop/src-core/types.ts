@@ -291,3 +291,87 @@ export interface CompareResult {
    */
   visibility?: CompareVisibility;
 }
+
+// -- P0 审查报告 manifest（版本化、无秘密、行值脱敏） -------------------------
+
+/** 审查报告 manifest schema 版本（升级路径必须有测试覆盖，见 manifest-export.md）。 */
+export const REVIEW_MANIFEST_VERSION = 1;
+
+/**
+ * 覆盖状态统一枚举：结构侧 skipped + 数据侧逐表状态 + 授权可见性的汇总视图。
+ * 各层原始状态映射到该枚举（确定性纯函数 deriveCoverageStatus 在 manifest.ts）。
+ */
+export type CoverageStatusKind =
+  | 'ok'
+  | 'permission-denied'
+  | 'no-row-identity'
+  | 'over-threshold'
+  | 'aborted'
+  | 'error'
+  | 'grant-invisible';
+
+/** 覆盖状态汇总：全局最严重 kind（快速判断）+ 各来源映射后的计数。 */
+export interface CoverageStatus {
+  /** 全局最严重状态（优先级见 manifest-export.md）；无任何问题的真实比较为 'ok'。 */
+  kind: CoverageStatusKind;
+  /** 各来源计数（映射后累加，如 2 个权限失败 skipped + 1 个数据表错误）。 */
+  counts: Partial<Record<CoverageStatusKind, number>>;
+}
+
+/**
+ * manifest 内的差异项：DiffItem 的确定性投影。
+ * 刻意不复制 rollback / explain（Q4：最小交接报告；回滚属后续报告工作台）。
+ * sql 保留原文（数据面板同源），DML 行值脱敏发生在序列化/ Markdown 输出层。
+ */
+export interface ReviewManifestItem {
+  id: string;
+  objectType: DiffItem['objectType'];
+  objectName: string;
+  changeType: ChangeType;
+  /** 仅 objectType==='data' 时有值。 */
+  dml?: DmlType;
+  aspects: StmtAspect[];
+  risk: RiskLevel;
+  sql: string;
+}
+
+/** 一次真实比较的可保存审查证据（versioned、无秘密、行值脱敏）。 */
+export interface ReviewManifest {
+  schemaVersion: typeof REVIEW_MANIFEST_VERSION;
+  /** 应用版本（package.json version，经 app.version IPC）。 */
+  appVersion: string;
+  /** ISO 时间。 */
+  exportedAt: string;
+  /** A → B 方向。 */
+  aAlias: string;
+  bAlias: string;
+  /** scopes / includeData / tableFilter（来自 CompareRequest 的可序列化子集）。 */
+  scope: {
+    scopes: Array<ObjectType | DataScope>;
+    includeData: boolean;
+    tableFilter?: string;
+  };
+  /** 结果来源（仅允许 'real'；demo 不导出）。 */
+  source: 'real';
+  /** 差异统计（CompareStats 平面化，字段顺序即类型声明顺序）。 */
+  stats: CompareStats;
+  /** 差异项（DDL 全量，DML 行值在导出时脱敏）。 */
+  items: ReviewManifestItem[];
+  /** 数据对比逐表状态（含 reason）。 */
+  dataTables?: DataTableStatus[];
+  /** 结构覆盖报告。 */
+  coverage?: StructureCoverage;
+  /** 授权可见性报告。 */
+  visibility?: CompareVisibility;
+  /** 覆盖状态统一汇总（枚举 + 计数）。 */
+  coverageStatus: CoverageStatus;
+}
+
+/** buildManifest 的输入：当前 CompareResult + 上次 CompareRequest + 别名 + appVersion。 */
+export interface ManifestBuildInput {
+  result: CompareResult;
+  request: CompareRequest;
+  aAlias: string;
+  bAlias: string;
+  appVersion: string;
+}

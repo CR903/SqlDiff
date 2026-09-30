@@ -39,6 +39,8 @@ function resetStore(): void {
     items: [],
     dataStatus: [],
     selectedId: null,
+    stats: null,
+    lastCompareRequest: null,
     resultSource: null,
     coverage: null,
     visibility: null,
@@ -64,6 +66,9 @@ describe('runCompare：开发/演示态（no-ipc）', () => {
     expect(s.resultError).toBeNull();
     expect(s.coverage).toBeNull();
     expect(s.visibility).toBeNull();
+    // demo 路径：统计落库供展示，但绝不保存导出用的 lastCompareRequest。
+    expect(s.stats).not.toBeNull();
+    expect(s.lastCompareRequest).toBeNull();
     expect(s.lastComboText).toContain('本地示例数据');
     expect(s.comparing).toBe(false);
   });
@@ -87,6 +92,9 @@ describe('runCompare：真实比较失败（Q1 分流）', () => {
     expect(s.resultSource).toBeNull();
     expect(s.coverage).toBeNull();
     expect(s.visibility).toBeNull();
+    // 真实失败：统计与导出请求一并清空，避免导出上一次的陈旧结果。
+    expect(s.stats).toBeNull();
+    expect(s.lastCompareRequest).toBeNull();
     expect(s.lastComboText).toContain('对比失败');
     expect(s.comparing).toBe(false);
   });
@@ -121,6 +129,10 @@ describe('runCompare：真实成功', () => {
     expect(s.resultSource).toBe('real');
     expect(s.coverage).toEqual(cov);
     expect(s.resultError).toBeNull();
+    // 真实成功：统计落库，且保存导出用的 lastCompareRequest。
+    expect(s.stats).toEqual(EMPTY_STATS);
+    expect(s.lastCompareRequest?.aId).toBe('n-prod');
+    expect(s.lastCompareRequest?.bId).toBe('n-staging');
   });
 
   it('真实结果漏标 source 时按 real 兜底（缺省语义，design.md）', async () => {

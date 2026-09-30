@@ -103,6 +103,10 @@ export interface SqlDiffApi {
     format: (sql: string) => Promise<string>;
     copy: (text: string) => Promise<boolean>;
   };
+  app: {
+    /** 应用版本（package.json version，审查报告头部用）。 */
+    version: () => Promise<string>;
+  };
 }
 
 const api: SqlDiffApi = {
@@ -144,6 +148,9 @@ const api: SqlDiffApi = {
   sql: {
     format: (sql: string) => ipcRenderer.invoke('sql.format', sql) as Promise<string>,
     copy: (text: string) => ipcRenderer.invoke('sql.copy', text) as Promise<boolean>,
+  },
+  app: {
+    version: () => ipcRenderer.invoke('app.version') as Promise<string>,
   },
 };
 

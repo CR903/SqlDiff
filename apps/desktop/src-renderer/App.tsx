@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { VERB_CHIPS, useDesktopStore, type AspectFilter, type DiffFilter, type LeftTab, type ObjectTypeFilter, type SlotId, type VerbFilter } from './store';
-import type { CoverageReason, DataTableStatus, DiffItem, ExcludedObject, HistoryEntry, NodeMeta, ObjectType, ObjectTypeWithData, SecretBundle, StmtAspect, Verb } from '../src-core/types';
+import type { CompareResult, CoverageReason, DataTableStatus, DiffItem, ExcludedObject, HistoryEntry, NodeMeta, ObjectType, ObjectTypeWithData, SecretBundle, StmtAspect, Verb } from '../src-core/types';
 import { sanitizeIpcError } from '../src-core/ipc-error';
 import { verbOf } from '../src-core/classify';
 import { visibleNodes } from './node-filter';
-import type { DataTableLists, DBeaverExportResult, NodeCreateInput } from '../src-main/preload';
+import { buildManifest, manifestFileNames, manifestToMarkdown, serializeManifest } from '../src-core/manifest';
+import type { DataTableLists, DBeaverExportResult, NodeCreateInput, SqlDiffApi } from '../src-main/preload';
 import {
   buildExportText,
   copyText,
   downloadJsonFile,
   downloadSqlFile,
+  downloadTextFile,
   highlightSql,
 } from './sql';
 
@@ -516,6 +518,8 @@ function DiffTable({
   onToggleVerb,
   onSelect,
   selectedId,
+  onExportManifest,
+  canExportManifest,
 }: {
   counts: Record<DiffFilter, number>;
   total: number;
@@ -541,6 +545,9 @@ function DiffTable({
   onToggleVerb: (v: Verb) => void;
   onSelect: (id: string | null) => void;
   selectedId: string | null;
+  /** 审查报告导出入口（仅真实比较可用）。 */
+  onExportManifest?: () => void;
+  canExportManifest?: boolean;
 }) {
   const isObjOn = (o: ObjectTypeWithData): boolean =>
     objectTypeFilter !== 'ALL' && objectTypeFilter.includes(o);
@@ -560,6 +567,20 @@ function DiffTable({
           </button>
         ))}
         <span className="diff-stat">当前 {visibleCount} 条 / 共 {total} 条</span>
+        {onExportManifest && (
+          <button
+            className="btn btn-sm"
+            disabled={!canExportManifest}
+            onClick={onExportManifest}
+            title={
+              canExportManifest
+                ? '导出当前真实比较的审查报告（JSON + Markdown，无秘密、数据行值已脱敏）'
+                : '仅真实比较可导出审查报告'
+            }
+          >
+            导出审查报告
+          </button>
+        )}
       </div>
       <div className="obj-filters" title="按对象类型过滤（多选含数据行；与动词/切面/Tab/关键字正交 AND；复制=所见）">
         <button
@@ -1410,6 +1431,8 @@ export default function App() {
   const verbFilter = useDesktopStore((s) => s.verbFilter);
   const items = useDesktopStore((s) => s.items);
   const selectedId = useDesktopStore((s) => s.selectedId);
+  const stats = useDesktopStore((s) => s.stats);
+  const lastCompareRequest = useDesktopStore((s) => s.lastCompareRequest);
   const comparing = useDesktopStore((s) => s.comparing);
   const progress = useDesktopStore((s) => s.progress);
   const progressPct = useDesktopStore((s) => s.progressPct);
@@ -1671,6 +1694,51 @@ export default function App() {
       .catch((e: unknown) => setToast(sanitizeIpcError(e)));
   };
 
+  // 审查报告导出：仅真实比较可用（demo 结果不提供导出入口）。
+  // manifest 构建在 renderer 侧纯函数完成（不重跑比较、不落盘），
+  // 下载内容层面对 data 项脱敏；导出物不含秘密与未经裁定的行值。
+  const canExportManifest = resultSource === 'real' && lastCompareRequest != null && !comparing;
+
+  const handleExportManifest = async (): Promise<void> => {
+    if (!lastCompareRequest) {
+      setToast('暂无可导出的审查报告（先完成一次真实比较）');
+      return;
+    }
+    try {
+      const api = (window as unknown as { sqldiff?: SqlDiffApi }).sqldiff ?? null;
+      const appVersion = api ? await api.app.version() : '0.0.0';
+      const result: CompareResult = {
+        items,
+        stats: stats ?? {
+          ALL: 0,
+          CREATE: 0,
+          DROP: 0,
+          CHANGE: 0,
+          INDEX: 0,
+          DML: { INSERT: 0, DELETE: 0, UPDATE: 0 },
+        },
+        ...(dataStatus.length > 0 ? { dataTables: dataStatus } : {}),
+        source: resultSource ?? 'real',
+        ...(coverage ? { coverage } : {}),
+        ...(visibility ? { visibility } : {}),
+      };
+      const m = buildManifest({
+        result,
+        request: lastCompareRequest,
+        aAlias: aliasOf(slotA),
+        bAlias: aliasOf(slotB),
+        appVersion,
+      });
+      const names = manifestFileNames(m.exportedAt);
+      downloadJsonFile(names.jsonFileName, serializeManifest(m));
+      downloadTextFile(names.markdownFileName, manifestToMarkdown(m), 'text/markdown;charset=utf-8');
+      const statusNote = m.coverageStatus.kind === 'ok' ? '' : `（覆盖状态：${m.coverageStatus.kind}）`;
+      setToast(`已导出审查报告：JSON + Markdown${statusNote}`);
+    } catch (e) {
+      setToast(`导出失败：${sanitizeIpcError(e)}`);
+    }
+  };
+
   return (
     <div className="app">
       <header className="topbar">
@@ -1855,6 +1923,8 @@ export default function App() {
                 onToggleVerb={toggleVerb}
                 onSelect={selectDiff}
                 selectedId={selectedId}
+                onExportManifest={() => void handleExportManifest()}
+                canExportManifest={canExportManifest}
               />
               {dataItems.length === 0 && dataStatus.length === 0 && (
                 <div className="card">

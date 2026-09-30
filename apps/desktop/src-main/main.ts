@@ -277,6 +277,8 @@ function registerHistoryIpc(): void {
 function registerIpc(): void {
   registerNodesIpc();
   registerHistoryIpc();
+  // 审查报告 manifest 头部需要应用版本（renderer 无法直接读 package.json）。
+  ipcMain.handle('app.version', () => app.getVersion());
   // 数据对比取消：进行中的 compare.run 分页循环经 AbortSignal 中断。
   let dataAbort: AbortController | null = null;
   ipcMain.handle('compare.cancel', () => {
