@@ -240,3 +240,28 @@ will-download落盘/错误消毒/全部Tab/筛选去重多选；verbOf动词chip
 ### Status
 
 [OK] **Completed**
+
+
+## Session 11: 授权盲区假 DROP 修复与 CDP 交互面验证
+<!-- trellis-session: v=2 fp=a39d4f0a2a96706b -->
+
+**Date**: 2026-09-30
+**Task**: 授权盲区假 DROP 修复与 CDP 交互面验证
+**Branch**: `main`
+
+### Summary
+
+实证发现表级授权账号下 A 侧不可见对象被当作不存在而输出 DROP TABLE 假象；新增 SHOW GRANTS 可见性判定并在 compareRun 前收窄为双方可见交集，消除假 DROP/CREATE；经 headless Electron CDP 验证错误卡片、覆盖明细、可见性范围明示，四件套 240 测试全绿
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0984cb4` | chore(task): 记录授权盲区假DROP任务与父任务进度 |
+| `c72df06` | feat(desktop): 授权盲区导致假 DROP 的可见性收窄 |
+| `e2bc632` | docs(spec): 同步可见性收窄契约并证伪 null 跳过声明 |
+| `0543029` | docs: 更新前端质量规范并忽略 CDP 临时文件 |
+
+### Status
+
+[OK] **Completed**
