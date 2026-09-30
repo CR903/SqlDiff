@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 12
+- **Total Sessions**: 13
 - **Last Active**: 2026-09-30
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~291 | Active |
+| `journal-1.md` | ~315 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 13 | 2026-09-30 | compare/data应用服务集成测试 | `4234a94`, `db3799c`, `48c47cf` | `main` |
 | 12 | 2026-09-30 | Review Manifest v1 版本化无秘密导出 | `2f21605`, `d790df4`, `79d8b82` | `main` |
 | 11 | 2026-09-30 | 授权盲区假 DROP 修复与 CDP 交互面验证 | `0984cb4`, `c72df06`, `e2bc632`, `0543029` | `main` |
 | 10 | 2026-09-29 | 比较结果来源与覆盖状态显式化 | `414bf29`, `b91e002`, `dc721c7` | `main` |

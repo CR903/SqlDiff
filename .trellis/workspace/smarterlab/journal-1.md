@@ -289,3 +289,27 @@ will-download落盘/错误消毒/全部Tab/筛选去重多选；verbOf动词chip
 ### Status
 
 [OK] **Completed**
+
+
+## Session 13: compare/data应用服务集成测试
+<!-- trellis-session: v=2 fp=d2759c901274a8aa -->
+
+**Date**: 2026-09-30
+**Task**: compare/data应用服务集成测试
+**Branch**: `main`
+
+### Summary
+
+为 runCompareRequest/runDataCompare 补齐 cleanup/cancel/partial failure 可重复集成测试：纯 mock 连接层、被测编排逻辑全真；10 个新测试覆盖元数据失败关池、ABORTED 取消、多表混合状态、全链路喂 buildManifest；四件套全绿（287 测试）
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4234a94` | chore(task): 规划compare服务集成测试任务 |
+| `db3799c` | test(desktop): compare/data应用服务集成测试 |
+| `48c47cf` | docs(spec): 记录应用服务集成测试策略 |
+
+### Status
+
+[OK] **Completed**
