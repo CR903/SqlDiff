@@ -8,7 +8,7 @@ Main-process modules use default imports for Node built-ins (`fs`, `path`, and `
 
 ## Type Ownership
 
-- Put domain contracts shared by main and renderer in `src-core/types.ts`: `NodeMeta`, `SecretBundle`, `DiffItem`, `CompareRequest`, `CompareResult`, `DataTableStatus`, and their literal unions.
+- Put domain contracts shared by main and renderer in `src-core/types.ts`: `NodeMeta`, `SecretBundle`, `DiffItem`, `CompareRequest`, `CompareResult`, `DataTableStatus`, and their literal unions. Review-manifest contracts also live there: `REVIEW_MANIFEST_VERSION`, `ReviewManifest`, `ReviewManifestItem`, `CoverageStatusKind`, `CoverageStatus`, and `ManifestBuildInput`.
 - Put bridge-only inputs and the exposed API beside the bridge in `src-main/preload.ts`: `NodeCreateInput`, `NodeUpdateInput`, `DataTableLists`, `CompareProgressEvent`, and `SqlDiffApi`.
 - Keep module-specific result shapes near their module, such as `RiskAssessment` in `risk.ts`, `TunnelEntry` in `connection.ts`, and `FetchAllOptions` in `data-fetch.ts`.
 - Use `import type` for type-only cross-layer imports. `App.tsx`, `store.ts`, and `sql.ts` import bridge types from `preload.ts`; `compare.ts` and `demo.ts` import `DatabaseMetadata` from `metadata.ts` as a type.

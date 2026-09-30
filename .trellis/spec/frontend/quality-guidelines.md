@@ -62,6 +62,7 @@ Minimum scenarios for affected flows:
 - real read-only compare with a Docker MySQL fixture when the target database is unavailable; keep credentials out of task files and pass `--default-character-set=utf8mb4` when seeding Chinese data through the MySQL CLI;
 - Cmd/Ctrl+Enter, swap/clear, and search smoke checks;
 - DBeaver export: node selection, all/none, warning visibility, JSON download, and no-secret inspection per the [DBeaver Export Contract](../backend/dbeaver-export.md).
+- Review-manifest export: after a real comparison, the `导出审查报告` button downloads both JSON and Markdown via trusted clicks; inspect the saved files for valid JSON, parseable schema version, redacted DML values, and absence of secret field names, per the [Review Manifest Export Contract](../backend/manifest-export.md). The demo path must not expose the button.
 
 Record executed assertions, screenshots, environment limits, and any waived checks in the active task report. Do not turn a Docker fixture result into a claim about an unavailable private database, and do not claim Windows native validation from a macOS cross-build.
 
