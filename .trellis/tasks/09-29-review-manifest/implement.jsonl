@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "manifest 只读边界、null 跳过不变量、SHOW GRANTS 只读声明"}
+{"file": ".trellis/spec/backend/dbeaver-export.md", "reason": "确定性序列化、保密边界、下载模式可复用"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "store 边界、lastCompareRequest 归属、展开态不进 Zustand"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "共享类型归属、字段可选性、脱敏器类型安全"}
