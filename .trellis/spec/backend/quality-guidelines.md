@@ -47,7 +47,8 @@ Tests are Vitest files, mostly colocated, and avoid live infrastructure by extra
 - SQL text, escaping, result shapes, and concurrency: `src-main/metadata.test.ts` and `src-main/data-fetch.test.ts`;
 - secret persistence/export and JSON storage: `src-core/vault.test.ts` (it exercises the main-process `vault.ts` and `store-json.ts`);
 - row identity decisions: `src-main/data-run-identity.test.ts`;
-- download and IPC error regressions: `src-main/download.test.ts` and `src-core/ipc-error.test.ts`.
+- download and IPC error regressions: `src-main/download.test.ts` and `src-core/ipc-error.test.ts`;
+- compare/data 应用服务集成测试（cleanup/cancel/partial failure）：`src-main/compare-run.integration.test.ts` 与 `src-main/data-run.integration.test.ts`（模块级 mock 连接层，被测编排逻辑全真）。
 
 Add or update a test in the same relevant layer as the change, preserving the documented storage exception. Test null/empty input, compatibility edges, and cleanup paths, not just the happy path. For filesystem tests, use temporary directories and remove them in `afterEach`, as in `vault.test.ts`.
 
