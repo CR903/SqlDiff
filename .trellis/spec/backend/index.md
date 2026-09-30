@@ -11,6 +11,7 @@ This directory covers the Electron main process and the process-neutral comparis
 | [Error Handling](./error-handling.md) | IPC failures, structured results, partial failures, cleanup | Current |
 | [Logging Guidelines](./logging-guidelines.md) | The project's actual diagnostic and logging boundaries | Current |
 | [DBeaver Export Contract](./dbeaver-export.md) | SqlDiff → DBeaver topology export signatures, validation, secrets, and tests | Current |
+| [Manifest Export Contract](./manifest-export.md) | Review Manifest schema, CoverageStatus mapping, DML redaction, JSON/Markdown serialization, tests | Current |
 | [Quality Guidelines](./quality-guidelines.md) | Type safety, security, tests, diff invariants, icons, packaging | Current |
 
 ## Pre-Development Checklist
