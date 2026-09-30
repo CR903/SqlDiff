@@ -265,3 +265,27 @@ will-download落盘/错误消毒/全部Tab/筛选去重多选；verbOf动词chip
 ### Status
 
 [OK] **Completed**
+
+
+## Session 12: Review Manifest v1 版本化无秘密导出
+<!-- trellis-session: v=2 fp=58e97c21cc1198b4 -->
+
+**Date**: 2026-09-30
+**Task**: Review Manifest v1 版本化无秘密导出
+**Branch**: `main`
+
+### Summary
+
+实现 versioned 无秘密 Review Manifest：统一 CoverageStatus 七分类、DML 脱敏器、确定性 JSON 序列化与 Markdown 交接报告、仅真实比较可导出；四件套全绿（277 测试）
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2f21605` | chore(task): 规划Review Manifest导出任务 |
+| `d790df4` | feat(desktop): 版本化无秘密Review Manifest导出 |
+| `79d8b82` | docs(spec): 记录Review Manifest导出契约 |
+
+### Status
+
+[OK] **Completed**
