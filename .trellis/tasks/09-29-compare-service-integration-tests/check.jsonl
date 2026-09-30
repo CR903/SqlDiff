@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "检查 cleanup/cancel/partial failure 断言齐全、mock 边界不破坏只读、mysqldiff 未动"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "检查无写库路径、无真实 SQL 执行"}
+{"file": ".trellis/spec/backend/manifest-export.md", "reason": "检查 AC5：全链路输出可被 buildManifest 消费"}

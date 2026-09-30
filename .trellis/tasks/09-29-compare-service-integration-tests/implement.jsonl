@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "测试策略：避免 live infrastructure、注入 minimal fakes；cleanup 路径必须测试；assigned resources closed"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "只读边界：测试不执行真实 SQL、不写库"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "错误码约定：ABORTED/THRESHOLD、CoverageReason 映射"}
+{"file": ".trellis/spec/backend/manifest-export.md", "reason": "AC5 衔接：buildManifest 消费 CompareResult 的形状"}
