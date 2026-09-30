@@ -313,3 +313,25 @@ will-download落盘/错误消毒/全部Tab/筛选去重多选；verbOf动词chip
 ### Status
 
 [OK] **Completed**
+
+
+## Session 14: 证据链父任务S4集成复核与归档
+<!-- trellis-session: v=2 fp=7146679afbd62c94 -->
+
+**Date**: 2026-09-30
+**Task**: 证据链父任务S4集成复核与归档
+**Branch**: `main`
+
+### Summary
+
+执行 09-29-review-evidence-chain 的 S4 最终集成复核：AC1-AC7 全部通过（四件套 26/287 全绿、mysqldiff 零改动、契约单一定义无重复实现）；发现并修复 backend/index.md 缺 manifest-export 索引；父任务归档，证据链收官
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ff6d474` | docs(evidence-chain): S4集成复核通过并补录manifest索引 |
+
+### Status
+
+[OK] **Completed**
