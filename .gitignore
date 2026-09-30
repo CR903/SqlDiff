@@ -1,3 +1,5 @@
 .DS_Store
 mysqldiff/
 mysqldiff/*
+tmp-cdp
+tmp-cdp-*
