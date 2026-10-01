@@ -14,7 +14,13 @@ import {
   saveTextFile,
   saveTextFiles,
 } from './sql';
-import { LEGACY_EXAMPLE, previewLegacyString } from './legacy-import';
+import {
+  draftToNodeInput,
+  LEGACY_EXAMPLE,
+  parseLegacyToDraft,
+  validateDraft,
+  type LegacyDraft,
+} from './legacy-import';
 
 // M5 正式 UI 三栏联调：左 NodeLibrary / 中 CompareSlots + DiffTable / 右 SqlPreview。
 // 交互参考 apps/desktop-mock/index.html；数据经 store 接 IPC（window.sqldiff），
@@ -1424,31 +1430,64 @@ function NodeModal({
 }
 
 /**
- * 老 CLI 连接串导入弹窗。
+ * 老 CLI 连接串导入弹窗（粘贴 → 可纠正字段 → 结构化入库）。
+ *
  * 为什么不直接用 window.prompt：Electron 下 prompt 抛异常且无人捕获（实测确认），
- * 表现为「点了没反应」；而且这个格式极难凭记忆拼对，必须把规则、示例、限制摆在界面上。
+ * 表现为「点了没反应」。
+ *
+ * 为什么解析结果要可编辑：老串用分隔符编码，而密码是任意字符，两者本质冲突
+ * （实测：密码含 @ ~ # 能还原，含 + 必失败）。既然解析不可靠，就让用户来裁决——
+ * 最终按结构化字段入库，不再让分隔符规则做第二次切割。
  */
 function LegacyImportModal({ onClose, onImported }: { onClose: () => void; onImported: (msg: string) => void }) {
-  const importLegacy = useDesktopStore((s) => s.importLegacy);
+  const saveNode = useDesktopStore((s) => s.saveNode);
   const [text, setText] = useState('');
+  const [draft, setDraft] = useState<LegacyDraft | null>(null);
+  const [risks, setRisks] = useState<string[]>([]);
+  const [parseMsg, setParseMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const preview = useMemo(() => previewLegacyString(text), [text]);
 
-  const handleImport = async (): Promise<void> => {
-    const src = text.trim();
-    if (!src) {
-      setErr('请先粘贴连接串');
+  const draftErrs = useMemo(() => (draft ? validateDraft(draft) : []), [draft]);
+  const set = <K extends keyof LegacyDraft>(k: K, v: LegacyDraft[K]): void =>
+    setDraft((d) => (d ? { ...d, [k]: v } : d));
+
+  const handleParse = (raw: string): void => {
+    setText(raw);
+    setErr(null);
+    if (!raw.trim()) {
+      setDraft(null);
+      setRisks([]);
+      setParseMsg(null);
       return;
     }
-    if (preview?.level === 'error') {
-      setErr(preview.summary);
+    const p = parseLegacyToDraft(raw);
+    if (p.level === 'error') {
+      // 切不出草稿也给一个空表单，用户总能手填，不被卡死。
+      setDraft(null);
+      setRisks([]);
+      setParseMsg(p.message);
+      return;
+    }
+    setDraft(p.draft);
+    setRisks(p.level === 'warn' ? p.risks : []);
+    setParseMsg(null);
+  };
+
+  const handleImport = async (): Promise<void> => {
+    if (!draft) {
+      setErr('请先粘贴连接串，或点「填入示例」看看格式');
+      return;
+    }
+    const invalid = validateDraft(draft);
+    if (invalid.length > 0) {
+      setErr(invalid.join('；'));
       return;
     }
     setBusy(true);
     setErr(null);
     try {
-      const m = await importLegacy(src);
+      const m = await saveNode(draftToNodeInput(draft) as NodeCreateInput);
       onImported(`已导入老连接串：${m.alias}`);
     } catch (e) {
       setErr(sanitizeIpcError(e));
@@ -1459,14 +1498,17 @@ function LegacyImportModal({ onClose, onImported }: { onClose: () => void; onImp
 
   return (
     <div className="modal-mask" onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
-      <div className="modal" role="dialog" aria-label="从老 CLI 连接串导入">
+      <div className="modal modal-wide" role="dialog" aria-label="从老 CLI 连接串导入">
         <div className="modal-title">从老 CLI 连接串导入</div>
         <div className="form-grid">
           <div className="legacy-intro">
             <p>
               从命令行工具（老 mysqldiff）里复制一条连接串，粘到下面即可生成一个节点，<b>免去手填表单</b>。
             </p>
-            <p>粘贴后会先显示解析预览，确认无误再点导入。</p>
+            <p>
+              粘贴后会<b>自动拆成下面的字段，可以随意修改</b>——密码里有 <code>@</code> 等特殊符号时，
+              请以你实际填写的内容为准。
+            </p>
           </div>
 
           <div className="legacy-format">
@@ -1487,23 +1529,97 @@ function LegacyImportModal({ onClose, onImported }: { onClose: () => void; onImp
             <input
               className="form-input mono"
               value={text}
-              onChange={(e) => { setText(e.target.value); setErr(null); }}
+              onChange={(e) => handleParse(e.target.value)}
               placeholder="appuser:secret@10.0.0.8~shop#3306"
               autoFocus
             />
           </label>
 
           <div className="legacy-preview-row">
-            <button className="btn btn-ghost btn-sm" onClick={() => { setText(LEGACY_EXAMPLE); setErr(null); }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => handleParse(LEGACY_EXAMPLE)}>
               填入示例
             </button>
           </div>
 
-          {preview && (
-            <div className={preview.level === 'error' ? 'form-err' : preview.level === 'warn' ? 'legacy-preview warn' : 'form-ok'}>
-              <div><b>{preview.summary}</b></div>
-              {preview.lines.map((l) => <div key={l}>· {l}</div>)}
-              {preview.level === 'warn' && <div className="legacy-preview-risk">⚠ {preview.risk}</div>}
+          {parseMsg && (
+            <div className="legacy-preview warn">
+              <div>⚠ {parseMsg}</div>
+            </div>
+          )}
+
+          {risks.length > 0 && (
+            <div className="legacy-preview warn">
+              <div><b>请核对下面的字段是否正确</b></div>
+              {risks.map((r) => <div key={r}>· {r}</div>)}
+            </div>
+          )}
+
+          {draft && (
+            <div className="legacy-fields">
+              <div className="legacy-fields-title">确认字段（可直接修改）</div>
+              <label className="form-row">
+                <span>别名</span>
+                <input className="form-input" value={draft.alias} onChange={(e) => set('alias', e.target.value)} />
+              </label>
+              <label className="form-row">
+                <span>主机</span>
+                <input className="form-input mono" value={draft.host} onChange={(e) => set('host', e.target.value)} />
+              </label>
+              <label className="form-row">
+                <span>端口</span>
+                <input className="form-input mono" value={draft.port} onChange={(e) => set('port', e.target.value)} />
+              </label>
+              <label className="form-row">
+                <span>用户名</span>
+                <input className="form-input" value={draft.user} onChange={(e) => set('user', e.target.value)} />
+              </label>
+              <label className="form-row">
+                <span>密码</span>
+                <input
+                  className="form-input mono"
+                  type="password"
+                  value={draft.password}
+                  onChange={(e) => set('password', e.target.value)}
+                  placeholder="可留空，之后再补"
+                />
+              </label>
+              <label className="form-row">
+                <span>库名</span>
+                <input className="form-input mono" value={draft.database} onChange={(e) => set('database', e.target.value)} />
+              </label>
+              <label className="form-check">
+                <input
+                  type="checkbox"
+                  checked={draft.sshEnabled}
+                  onChange={(e) => set('sshEnabled', e.target.checked)}
+                />
+                走 SSH 跳板
+              </label>
+              {draft.sshEnabled && (
+                <>
+                  <label className="form-row">
+                    <span>跳板主机</span>
+                    <input className="form-input mono" value={draft.sshHost} onChange={(e) => set('sshHost', e.target.value)} />
+                  </label>
+                  <label className="form-row">
+                    <span>跳板端口</span>
+                    <input className="form-input mono" value={draft.sshPort} onChange={(e) => set('sshPort', e.target.value)} />
+                  </label>
+                  <label className="form-row">
+                    <span>SSH 用户名</span>
+                    <input className="form-input" value={draft.sshUser} onChange={(e) => set('sshUser', e.target.value)} />
+                  </label>
+                  <label className="form-row">
+                    <span>SSH 密码</span>
+                    <input
+                      className="form-input mono"
+                      type="password"
+                      value={draft.sshPassword}
+                      onChange={(e) => set('sshPassword', e.target.value)}
+                    />
+                  </label>
+                </>
+              )}
             </div>
           )}
 
@@ -1514,7 +1630,7 @@ function LegacyImportModal({ onClose, onImported }: { onClose: () => void; onImp
               <button className="btn btn-ghost" disabled={busy} onClick={onClose}>取消</button>
               <button
                 className="btn btn-primary"
-                disabled={busy || !text.trim() || preview?.level === 'error'}
+                disabled={busy || !draft || draftErrs.length > 0}
                 onClick={() => void handleImport()}
               >
                 {busy ? '导入中…' : '导入'}

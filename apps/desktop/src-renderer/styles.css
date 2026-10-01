@@ -162,6 +162,10 @@ button.star { background: none; border: none; cursor: pointer; font-size: 14px; 
 .legacy-preview-row { display: flex; justify-content: flex-end; }
 .legacy-preview { margin-top: 10px; font-size: 12px; color: #fcd34d; background: #713f1233; border: 1px solid #713f12; border-radius: 8px; padding: 8px 12px; line-height: 1.6; }
 .legacy-preview-risk { margin-top: 4px; color: #fca5a5; }
+.modal-wide { width: 620px; }
+/* 解析出的可编辑字段：密码含分隔符时用户在这里裁决，故需明显可改 */
+.legacy-fields { margin-top: 12px; padding: 10px 12px; background: #0b0f14; border: 1px solid #2a3648; border-radius: 8px; display: flex; flex-direction: column; gap: 8px; }
+.legacy-fields-title { font-size: 11px; color: #64748b; }
 .modal-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 .modal-actions-right { margin-left: auto; display: flex; gap: 8px; }
 /* DBeaver 兼容导出：明确无秘密迁移提示 + 本地节点选择 */

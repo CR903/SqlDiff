@@ -251,7 +251,6 @@ interface DesktopState {
   exportDoc: () => Promise<ExportJSON>;
   exportDbeaver: (ids: string[]) => Promise<DBeaverExportResult>;
   importDoc: (doc: ExportJSON) => Promise<number>;
-  importLegacy: (connStr: string, alias?: string) => Promise<NodeMeta>;
 }
 
 export const useDesktopStore = create<DesktopState>()((set, get) => ({
@@ -538,14 +537,6 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
     const r = await api.nodes.import(doc);
     await get().refreshNodes();
     return r.imported;
-  },
-
-  importLegacy: async (connStr, alias) => {
-    const api = getIpc();
-    if (!api) throw new Error('当前为预览模式（无主进程），请在 Electron 中运行以导入连接串');
-    const meta = await api.nodes.importLegacy(connStr, alias);
-    set((s) => ({ nodes: [...s.nodes, meta] }));
-    return meta;
   },
 
   runCompare: async () => {
