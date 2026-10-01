@@ -151,6 +151,17 @@ button.star { background: none; border: none; cursor: pointer; font-size: 14px; 
 .form-hint { font-size: 11px; color: #64748b; margin: 10px 0 0; }
 .form-err { margin-top: 10px; font-size: 12px; color: #fca5a5; background: #7f1d1d33; border: 1px solid #7f1d1d; border-radius: 8px; padding: 8px 12px; }
 .form-ok { margin-top: 10px; font-size: 12px; color: #86efac; background: #14532d33; border: 1px solid #14532d; border-radius: 8px; padding: 8px 12px; }
+/* 老 CLI 连接串导入：格式说明必须显眼——这是最容易拼错的地方 */
+.legacy-intro { font-size: 12px; color: #94a3b8; line-height: 1.6; }
+.legacy-intro p { margin: 0 0 6px; }
+.legacy-format { background: #0b0f14; border: 1px solid #2a3648; border-radius: 8px; padding: 10px 12px; }
+.legacy-format-title { font-size: 11px; color: #64748b; margin-bottom: 6px; }
+.legacy-format-code { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #7dd3fc; background: #0f172a; border: 1px solid #1e293b; border-radius: 6px; padding: 5px 8px; margin-bottom: 4px; word-break: break-all; }
+.legacy-format-rules { margin: 8px 0 0; padding-left: 18px; font-size: 11px; color: #94a3b8; line-height: 1.7; }
+.legacy-format-rules code { color: #7dd3fc; background: #0f172a; border-radius: 4px; padding: 1px 4px; }
+.legacy-preview-row { display: flex; justify-content: flex-end; }
+.legacy-preview { margin-top: 10px; font-size: 12px; color: #fcd34d; background: #713f1233; border: 1px solid #713f12; border-radius: 8px; padding: 8px 12px; line-height: 1.6; }
+.legacy-preview-risk { margin-top: 4px; color: #fca5a5; }
 .modal-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 .modal-actions-right { margin-left: auto; display: flex; gap: 8px; }
 /* DBeaver 兼容导出：明确无秘密迁移提示 + 本地节点选择 */

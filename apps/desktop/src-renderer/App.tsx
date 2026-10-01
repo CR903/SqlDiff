@@ -14,6 +14,7 @@ import {
   saveTextFile,
   saveTextFiles,
 } from './sql';
+import { LEGACY_EXAMPLE, previewLegacyString } from './legacy-import';
 
 // M5 正式 UI 三栏联调：左 NodeLibrary / 中 CompareSlots + DiffTable / 右 SqlPreview。
 // 交互参考 apps/desktop-mock/index.html；数据经 store 接 IPC（window.sqldiff），
@@ -263,7 +264,11 @@ function NodeLibrary({
         >
           导入
         </button>
-        <button className="link-btn" title="粘贴老 CLI 连接串一键解析导入" onClick={onImportLegacy}>
+        <button
+          className="link-btn"
+          title="从老 CLI 连接串导入节点（格式：用户名:密码@主机~库名#端口，可选 +SSH段）"
+          onClick={onImportLegacy}
+        >
           连串
         </button>
         <input
@@ -1418,6 +1423,114 @@ function NodeModal({
   );
 }
 
+/**
+ * 老 CLI 连接串导入弹窗。
+ * 为什么不直接用 window.prompt：Electron 下 prompt 抛异常且无人捕获（实测确认），
+ * 表现为「点了没反应」；而且这个格式极难凭记忆拼对，必须把规则、示例、限制摆在界面上。
+ */
+function LegacyImportModal({ onClose, onImported }: { onClose: () => void; onImported: (msg: string) => void }) {
+  const importLegacy = useDesktopStore((s) => s.importLegacy);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const preview = useMemo(() => previewLegacyString(text), [text]);
+
+  const handleImport = async (): Promise<void> => {
+    const src = text.trim();
+    if (!src) {
+      setErr('请先粘贴连接串');
+      return;
+    }
+    if (preview?.level === 'error') {
+      setErr(preview.summary);
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const m = await importLegacy(src);
+      onImported(`已导入老连接串：${m.alias}`);
+    } catch (e) {
+      setErr(sanitizeIpcError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-mask" onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+      <div className="modal" role="dialog" aria-label="从老 CLI 连接串导入">
+        <div className="modal-title">从老 CLI 连接串导入</div>
+        <div className="form-grid">
+          <div className="legacy-intro">
+            <p>
+              从命令行工具（老 mysqldiff）里复制一条连接串，粘到下面即可生成一个节点，<b>免去手填表单</b>。
+            </p>
+            <p>粘贴后会先显示解析预览，确认无误再点导入。</p>
+          </div>
+
+          <div className="legacy-format">
+            <div className="legacy-format-title">格式</div>
+            <code className="legacy-format-code">用户名:密码@主机~库名#端口</code>
+            <code className="legacy-format-code">+ssh用户名:ssh密码@ssh主机#ssh端口</code>
+            <ul className="legacy-format-rules">
+              <li><code>:</code> 分隔用户名与密码</li>
+              <li><code>@</code> 之后是主机</li>
+              <li><code>~</code> 之后是数据库名</li>
+              <li><code>#</code> 之后是端口，可省略（默认 3306）</li>
+              <li><code>+</code> 之后是 SSH 跳板段，<b>不需要跳板就整段省略</b>（SSH 端口默认 22）</li>
+            </ul>
+          </div>
+
+          <label className="form-row">
+            <span>连接串</span>
+            <input
+              className="form-input mono"
+              value={text}
+              onChange={(e) => { setText(e.target.value); setErr(null); }}
+              placeholder="appuser:secret@10.0.0.8~shop#3306"
+              autoFocus
+            />
+          </label>
+
+          <div className="legacy-preview-row">
+            <button className="btn btn-ghost btn-sm" onClick={() => { setText(LEGACY_EXAMPLE); setErr(null); }}>
+              填入示例
+            </button>
+          </div>
+
+          {preview && (
+            <div className={preview.level === 'error' ? 'form-err' : preview.level === 'warn' ? 'legacy-preview warn' : 'form-ok'}>
+              <div><b>{preview.summary}</b></div>
+              {preview.lines.map((l) => <div key={l}>· {l}</div>)}
+              {preview.level === 'warn' && <div className="legacy-preview-risk">⚠ {preview.risk}</div>}
+            </div>
+          )}
+
+          {err && <div className="form-err">{err}</div>}
+
+          <div className="modal-actions">
+            <span className="modal-actions-right">
+              <button className="btn btn-ghost" disabled={busy} onClick={onClose}>取消</button>
+              <button
+                className="btn btn-primary"
+                disabled={busy || !text.trim() || preview?.level === 'error'}
+                onClick={() => void handleImport()}
+              >
+                {busy ? '导入中…' : '导入'}
+              </button>
+            </span>
+          </div>
+          <p className="form-hint">
+            密码会加密进系统钥匙串，nodes.json 只存元数据。密码含 <code>@</code> <code>~</code> <code>#</code> 时可能被切错位，
+            建议改用「＋ 新增」手填表单。
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // App 组装
 // ---------------------------------------------------------------------------
@@ -1491,11 +1604,11 @@ export default function App() {
   const testNode = useDesktopStore((s) => s.testNode);
   const exportDoc = useDesktopStore((s) => s.exportDoc);
   const importDoc = useDesktopStore((s) => s.importDoc);
-  const importLegacy = useDesktopStore((s) => s.importLegacy);
 
-  // 节点管理本地状态：表单 Modal + DBeaver 选择 Modal + 单卡测试延迟。
+  // 节点管理本地状态：表单 Modal + DBeaver 选择 Modal + 老串导入 Modal + 单卡测试延迟。
   const [nodeModal, setNodeModal] = useState<{ editingId: string | null } | null>(null);
   const [dbeaverExportOpen, setDbeaverExportOpen] = useState(false);
+  const [legacyImportOpen, setLegacyImportOpen] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [latencies, setLatencies] = useState<Record<string, number>>({});
   // 覆盖明细展开态：renderer-only UI 状态（state-management.md：不进 Zustand）。
@@ -1714,11 +1827,9 @@ export default function App() {
   };
 
   const handleImportLegacy = (): void => {
-    const s = window.prompt('粘贴老 CLI 连接串（user:pass@host~db#port[+sshuser:sshpass@sshhost#sshport]）');
-    if (!s || !s.trim()) return;
-    void importLegacy(s.trim())
-      .then((m) => setToast(`已导入老连接串：${m.alias}`))
-      .catch((e: unknown) => setToast(sanitizeIpcError(e)));
+    // 原实现用 window.prompt，Electron 下会抛异常且此处无人捕获 → 点击毫无反应（已实测确认）。
+    // 改为打开带格式说明与解析预览的弹窗。
+    setLegacyImportOpen(true);
   };
 
   // 审查报告导出：仅真实比较可用（demo 结果不提供导出入口）。
@@ -2030,6 +2141,15 @@ export default function App() {
           onClose={() => setNodeModal(null)}
           onSaved={(msg) => {
             setNodeModal(null);
+            setToast(msg);
+          }}
+        />
+      )}
+      {legacyImportOpen && (
+        <LegacyImportModal
+          onClose={() => setLegacyImportOpen(false)}
+          onImported={(msg) => {
+            setLegacyImportOpen(false);
             setToast(msg);
           }}
         />
