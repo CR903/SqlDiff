@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "子标签行是 DiffTable 的一部分，须遵循 memo 分段与 chip 计数基座规则：App 计算 byKw/byObj/byAspect 分段派生，不在组件内重跑过滤链"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "aspectFilter 属 store 的结果/视图态；子标签计数是派生数据不得进 Zustand；需确认 setAspectFilter 是否存在（现仅有 toggleAspect）"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "子标签与既有对象/动词 chips 的正交关系、计数基座、以及需 CDP 端到端验证的交互路径都由此 spec 约束"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "本任务刻意不改核心分类：此 spec 钉死 aspectOf/verbOf/classify 不变量与「filtering and export must describe the same DiffItem model」，改动须证明未违反"}

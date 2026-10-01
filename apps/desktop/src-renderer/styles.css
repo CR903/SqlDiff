@@ -104,6 +104,10 @@ button.star { background: none; border: none; cursor: pointer; font-size: 14px; 
 .risk-med { color: #fbbf24; }
 .risk-low { color: #4ade80; }
 .obj-filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+/* 切面子标签行：紧贴 Tab 行，用左侧色条 + 缩进表达「隶属于当前 Tab」的从属关系 */
+.obj-filters-subtab { padding-left: 10px; border-left: 2px solid #2a3648; margin-top: -2px; }
+.obj-filters-subtab .diff-stat { margin-left: 0; font-size: 11px; color: #64748b; }
+.obj-filters-subtab .chip:disabled { opacity: 0.4; cursor: not-allowed; }
 .chip { background: #0b0f14; border: 1px solid #2a3648; color: #94a3b8; border-radius: 999px; font-size: 12px; padding: 4px 12px; cursor: pointer; }
 .chip:hover { color: #e2e8f0; border-color: #3b82f6; }
 .chip.active { background: #1e293b; color: #fff; border-color: #3b82f6; }

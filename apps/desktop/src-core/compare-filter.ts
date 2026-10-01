@@ -60,22 +60,32 @@ export function recountStats(items: DiffItem[]): CompareResult['stats'] {
   return stats;
 }
 
-/** R4 对象过滤（多选含数据行；'ALL'/空数组/选满 = 不限，组内 OR）。 */
 /**
- * UI 可切换过滤的切面（`table`/`routine`/`data` 三桶另有 Tab 或对象 chip 表达，不单列）。
- * 与 `ASPECT_ALL` 的差别是「哪些值得给用户单独一个开关」。
+ * 可切换过滤的切面计数键（全量 `StmtAspect`，而非某一子集）。
+ * 早前一版只数 index/primary/column（全局切面 chip 时代），现改为 Tab 内子标签，
+ * 需要 table/routine/data 同样参与计数——它们正是 DROP·表 / CHANGE·例程 / CHANGE·数据 的来源。
  */
-export type AspectCountKey = 'index' | 'primary' | 'column';
+export type AspectCountKey = StmtAspect;
+
+/** 各切面计数键的零值基座，避免每次调用重建对象字面量。 */
+const ZERO_ASPECT_COUNTS: Record<AspectCountKey, number> = {
+  table: 0,
+  column: 0,
+  primary: 0,
+  index: 0,
+  routine: 0,
+  data: 0,
+};
 
 /**
- * 各切面的条目数，供 UI 打 chip 标签。
- * 计数基数由调用方给定（通常是「除切面自身外已过滤」的 byObj），
- * 这样切面自身不参与过滤、开关始终可逆可见。
+ * 各切面的条目数，供 UI 打 chip / 子标签。
+ * 计数基数由调用方给定——**必须是不含切面自身过滤的列表**（通常是 byTab），
+ * 否则数字无法回答「我点了这个子标签会得到几条」。
  */
 export function countAspects(
   items: readonly DiffItem[],
 ): Record<AspectCountKey, number> {
-  const counts: Record<AspectCountKey, number> = { index: 0, primary: 0, column: 0 };
+  const counts: Record<AspectCountKey, number> = { ...ZERO_ASPECT_COUNTS };
   for (const it of items) {
     for (const a of it.aspects ?? []) {
       if (a in counts) counts[a as AspectCountKey] += 1;
@@ -84,6 +94,62 @@ export function countAspects(
   return counts;
 }
 
+/**
+ * Tab → 该 Tab 内可用的切面子标签（有序）。
+ *
+ * 来源是实测的 (changeType × aspect) 矩阵，不是拍脑袋的枚举：
+ * `aspects` 恒为单元素数组（`compare.ts:42`，并由 `diff.test.ts:268`
+ * 的 `toHaveLength(1)` 断言守住），故 (Tab, 切面) 构成无歧义分区，
+ * 子标签不会漏项也不会重叠。
+ *
+ *   DROP   → { table, column, primary, index, routine }
+ *   CHANGE → { column, primary, index, routine, data }
+ *
+ * `ALL` / `CREATE` 刻意缺席：CREATE 的切面只有 table/routine，细分收益低；
+ * `ALL` 若提供全量子标签会与具体 Tab 的子标签语义重复。缺席即「该 Tab 不分子标签」。
+ */
+export const ASPECT_SCOPES: Record<'DROP' | 'CHANGE', { value: StmtAspect; label: string }[]> = {
+  DROP: [
+    { value: 'table', label: '表' },
+    { value: 'column', label: '列' },
+    { value: 'primary', label: '主键' },
+    { value: 'index', label: '索引' },
+    { value: 'routine', label: '例程' },
+  ],
+  CHANGE: [
+    { value: 'column', label: '列' },
+    { value: 'primary', label: '主键' },
+    { value: 'index', label: '索引' },
+    { value: 'routine', label: '例程' },
+    { value: 'data', label: '数据' },
+  ],
+};
+
+/** 取某 Tab 的子标签集；该 Tab 不分子标签时返回 null（ALL / CREATE）。 */
+export function aspectScopeFor(tab: string): { value: StmtAspect; label: string }[] | null {
+  return ASPECT_SCOPES[tab as 'DROP' | 'CHANGE'] ?? null;
+}
+
+/**
+ * 把切面选择裁剪到目标 Tab 的可用集（切换 Tab 时调用）。
+ *
+ * 存在的原因是一个具体的 UX 失败模式：在 `DROP` 下选了「表」再切到 `CHANGE`，
+ * 而 CHANGE 没有 `table` 切面——若不裁剪，结果列表会变成空的，
+ * 且界面上没有任何可见原因提示为何为空（静默空列表）。
+ *
+ * 语义：裁剪后仍有剩余则保留（例如 DROP 同时选了「表+索引」，CHANGE 两者皆可用）；
+ * 裁剪后为空则回落 `ALL`。`ALL` 原样返回。
+ */
+export function pruneAspectFilter(sel: AspectFilter, tab: string): AspectFilter {
+  const allowed = aspectScopeFor(tab);
+  if (allowed === null) return 'ALL';
+  if (sel === 'ALL') return 'ALL';
+  const allowedSet = new Set(allowed.map((a) => a.value));
+  const kept = sel.filter((a) => allowedSet.has(a));
+  return kept.length === 0 ? 'ALL' : kept;
+}
+
+/** R4 对象过滤（多选含数据行；'ALL'/空数组/选满 = 不限，组内 OR）。 */
 export type ObjectTypeFilter = 'ALL' | ObjectTypeWithData[];
 /** R4 切面过滤（多选；'ALL'/空数组/选满 = 不限，组内 OR）。 */
 export type AspectFilter = 'ALL' | StmtAspect[];

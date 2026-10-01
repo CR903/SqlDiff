@@ -43,6 +43,16 @@ The renderer filter chain is keyword -> object -> aspect -> change tab plus verb
 
 Do not calculate a separate unselected copy/export list from unfiltered `items`, and do not update one counter without the same filter base used by the visible rows.
 
+### Aspect sub-tabs are scoped to the change tab
+
+`aspectFilter` is exposed to users as **sub-tabs scoped to the selected change tab**, not as a global chip row. `ASPECT_SCOPES` in `src-core/compare-filter.ts` maps `DROP`/`CHANGE` to their aspects; `ALL` and `CREATE` deliberately have no entry, so no sub-tab row renders for them.
+
+Three rules keep this from producing confusing states:
+
+- **Sub-tab counts must come from a base that excludes the aspect filter itself.** `App` derives `byTab` from `byObj` (not `byAspect`) and counts on it. Deriving from `byAspect` makes every other chip collapse to 0 the moment one aspect is selected, which disables them and silently breaks the OR multi-select.
+- **Switching tab prunes unavailable aspects.** `pruneAspectFilter` drops selections the new tab cannot satisfy and falls back to `ALL` when nothing remains. Without it, `DROP` + `table` followed by a switch to `CHANGE` yields an empty list with no visible reason.
+- **A selected sub-tab stays clickable even at count 0.** `disabled` must be `count === 0 && !selected`. An active-but-disabled chip is a trap: the list is empty and the chip cannot be turned off.
+
 ## Preview and Failure State
 
 The seed nodes in `store.ts` and `runDemoCompare` in `demo.ts` support `npm run dev` without Electron.

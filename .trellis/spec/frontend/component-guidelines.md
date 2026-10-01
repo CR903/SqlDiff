@@ -22,6 +22,7 @@ The three primary regions are stable product concepts:
 
 - Keep transient input state local: `NodeModal` owns its form strings and test/save flags; `DBeaverExportModal` owns selected ids plus exporting/error state; `DataSection` owns the add-row A/B draft selects while existing pair selections remain in the store; `DataOptionsInputs` owns string drafts and syncs normalized numeric values from props.
 - Use `useMemo` for expensive or identity-sensitive derivations. `App` builds the keyword/object/aspect/verb chain in separate memo stages so counts have a clear base. `SqlPreview` memoizes export text and highlighted HTML.
+- Aspect filtering renders as **sub-tabs scoped to the selected change tab** (`DROP`/`CHANGE`), not a global chip row; `ALL` and `CREATE` render no sub-tab row. The sub-tab row is a **sibling** of the object-chip row, never nested inside it. See [State Management](./state-management.md#aspect-sub-tabs-are-scoped-to-the-change-tab) for the counting-base, pruning, and disabled-state rules.
 - Do not store `tabItems`, SQL preview HTML, or filter counts back into Zustand. They are derived from `items` and filter state in `App`.
 
 ## Rendering and Styling

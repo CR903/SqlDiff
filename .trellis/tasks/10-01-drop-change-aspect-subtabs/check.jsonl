@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "复查：memo 分段未被打破、过滤链未在组件内重复、chip 计数基座正确、既有 props 契约未被破坏"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "复查：派生计数未误入 Zustand、aspectFilter 状态边界正确、组件卸载无副作用"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "复查 UI 不变量与既有质量门；确认删除全局切面 chip 后无失效 spec 引用，并按其 CDP 流程验证子标签交互"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "复查：各 Tab 统计口径与改动前完全一致（AC8），核心分类/风险判定一字未动"}

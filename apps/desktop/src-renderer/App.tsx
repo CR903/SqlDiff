@@ -21,7 +21,7 @@ import {
   validateDraft,
   type LegacyDraft,
 } from './legacy-import';
-import { countAspects, type AspectCountKey } from '../src-core/compare-filter';
+import { aspectScopeFor, countAspects, pruneAspectFilter } from '../src-core/compare-filter';
 
 // M5 正式 UI 三栏联调：左 NodeLibrary / 中 CompareSlots + DiffTable / 右 SqlPreview。
 // 交互参考 apps/desktop-mock/index.html；数据经 store 接 IPC（window.sqldiff），
@@ -55,33 +55,6 @@ const OBJ_CHIPS: Array<{ value: ObjectTypeWithData; label: string }> = [
   { value: 'procedure', label: '过程' },
   { value: 'function', label: '函数' },
   { value: 'data', label: '数据' },
-];
-
-/** 可切换过滤的切面（`table`/`routine`/`data` 三桶无独立 chip，见下方注释）。 */
-type AspectFilterKey = AspectCountKey;
-
-/**
- * 切面 chips（多选 OR；与对象/动词/Tab 正交 AND）。
- * 只暴露 index / primary / column 三个「表内部结构」切面——
- * `table`（整表 CREATE/DROP）由上方 Tab=DROP/CREATE 表达，`routine`/`data` 由对象 chips 表达，
- * 再单列一排只会重复且互相盖掉计数。
- */
-const ASPECT_CHIPS: Array<{ value: AspectFilterKey; label: string; title: string }> = [
-  {
-    value: 'index',
-    label: 'INDEX',
-    title: '仅看索引语句（ADD/DROP INDEX|KEY；PRIMARY KEY 归主键不归此类）',
-  },
-  {
-    value: 'primary',
-    label: '主键',
-    title: '仅看主键语句（PRIMARY KEY 增删）。注意「DROP PRIMARY KEY, ADD PRIMARY KEY」是原子换主键、表与数据都完好，仍会被 DROP Tab 收录',
-  },
-  {
-    value: 'column',
-    label: '列',
-    title: '仅看列语句（ADD/DROP/CHANGE/MODIFY COLUMN）。DROP COLUMN 会丢数据、风险为高',
-  },
 ];
 
 function riskClass(risk: string): string {
@@ -546,6 +519,7 @@ function DiffTable({
   diffFilter,
   objectTypeFilter,
   aspectFilter,
+  aspectScope,
   aspectCounts,
   objCounts,
   verbFilter,
@@ -569,8 +543,10 @@ function DiffTable({
   objectTypeFilter: ObjectTypeFilter;
   /** R4 切面多选；'ALL' = 不限，组内 OR。 */
   aspectFilter: AspectFilter;
-  /** 当前对象视图下各切面的语句数（chip 标签用，不过滤自身）。 */
-  aspectCounts: Record<AspectFilterKey, number>;
+  /** 当前 Tab 的切面子标签集（null = 该 Tab 不分子标签，即 ALL / CREATE）。 */
+  aspectScope: { value: StmtAspect; label: string }[] | null;
+  /** 当前 Tab 内各切面的语句数（子标签标签用，不过滤自身）。 */
+  aspectCounts: Record<StmtAspect, number>;
   /** 对象 chip 计数基座（对象自身不过滤，保证开关可逆可见）。 */
   objCounts: Record<ObjectTypeWithData, number>;
   /** R7 动词桶选择（'ALL' = 不限；多选 OR，组间与对象/切面/Tab 正交 AND）。 */
@@ -621,6 +597,34 @@ function DiffTable({
           </button>
         )}
       </div>
+      {/* 切面子标签：仅 DROP / CHANGE Tab 出现，按 Tab 作用域限定。
+        紧贴 Tab 行、用左色条表达从属关系。计数基座是 byTab（不含切面自身过滤），
+        因此数字回答「点了会得到几条」。计数为 0 时显示但禁用——隐藏会让用户以为漏了功能。 */}
+      {aspectScope && (
+        <div
+          className="obj-filters obj-filters-subtab"
+          title={`「${diffFilter}」内的语句按改动对象分类。切换上方 Tab 会自动清理该 Tab 不适用的选择。`}
+        >
+          <span className="diff-stat" style={{ marginLeft: 0 }}>
+            {diffFilter}
+          </span>
+          {aspectScope.map((f) => (
+            <button
+              key={f.value}
+              className={isAspectOn(f.value) ? 'chip active' : 'chip'}
+              title={`仅看 ${diffFilter} 中的${f.label}类语句`}
+              // 计数为 0 的子标签禁用，但**已选中的必须保持可点**：
+              // 否则会出现「active + disabled」的困局——结果为空、chip 点不动、
+              // 用户既看不到原因也退不出（切换 Tab 前）。实测 CHANGE 的「主键 (0)」
+              // 正是这种情形：CHANGE 侧确实没有主键变更，但选择仍需可撤销。
+              disabled={aspectCounts[f.value] === 0 && !isAspectOn(f.value)}
+              onClick={() => onToggleAspect(f.value)}
+            >
+              {f.label} ({aspectCounts[f.value]})
+            </button>
+          ))}
+        </div>
+      )}
       <div className="obj-filters" title="按对象类型过滤（多选含数据行；与动词/切面/Tab/关键字正交 AND；复制=所见）">
         <button
           className={objectTypeFilter === 'ALL' ? 'chip active' : 'chip'}
@@ -636,16 +640,6 @@ function DiffTable({
             onClick={() => onToggleObj(f.value)}
           >
             {f.label} ({objCounts[f.value]})
-          </button>
-        ))}
-        {ASPECT_CHIPS.map((f) => (
-          <button
-            key={f.value}
-            className={isAspectOn(f.value) ? 'chip active' : 'chip'}
-            title={f.title}
-            onClick={() => onToggleAspect(f.value)}
-          >
-            {f.label} ({aspectCounts[f.value]})
           </button>
         ))}
       </div>
@@ -1739,6 +1733,7 @@ export default function App() {
   const setObjectTypeFilter = useDesktopStore((s) => s.setObjectTypeFilter);
   const toggleObjectType = useDesktopStore((s) => s.toggleObjectType);
   const toggleAspect = useDesktopStore((s) => s.toggleAspect);
+  const setAspectFilter = useDesktopStore((s) => s.setAspectFilter);
   const toggleVerb = useDesktopStore((s) => s.toggleVerb);
   const selectDiff = useDesktopStore((s) => s.selectDiff);
   const setToast = useDesktopStore((s) => s.setToast);
@@ -1836,11 +1831,17 @@ export default function App() {
         : byObj.filter((it) => (it.aspects ?? []).some((a) => aspSet.has(a))),
     [byObj, aspSet],
   );
-  // 切面 chip 标签计数（切面自身不过滤，保证开关可逆可见）。
-  // 必须覆盖 index/primary/column 三类：只给 INDEX 一个时，
-  // 「DROP + 表」会把 DROP TABLE 与 ALTER TABLE … DROP PRIMARY KEY 混在一起，
-  // 因为 PRIMARY KEY 刻意不归 index，用户又没有别的维度能把它筛掉。
-  const aspectCounts = useMemo(() => countAspects(byObj), [byObj]);
+  // 切面子标签：仅 DROP / CHANGE Tab 出现（ALL / CREATE 不细分）。
+  const aspectScope = useMemo(() => aspectScopeFor(diffFilter), [diffFilter]);
+  // 子标签计数基座 = 已按 Tab 收窄、但**尚未按切面收窄**的列表（故取自 byObj 而非 byAspect）。
+  // 若误用 byAspect，计数会包含切面过滤自身：选中「表」后其余切面全变 0 → 全部 disabled →
+  // 多选 OR 直接失效（用户无法再叠加第二个切面）。这正是 AC4 要求「不以自身为基数」。
+  const byTab = useMemo(
+    () =>
+      diffFilter === 'ALL' ? byObj : byObj.filter((it) => it.changeType === diffFilter),
+    [byObj, diffFilter],
+  );
+  const aspectCounts = useMemo(() => countAspects(byTab), [byTab]);
   const counts = useMemo(() => {
     const c: Record<DiffFilter, number> = { ALL: byAspect.length, CREATE: 0, DROP: 0, CHANGE: 0 };
     for (const it of byAspect) c[it.changeType] += 1;
@@ -1908,6 +1909,17 @@ export default function App() {
   useEffect(() => {
     setVisibilityOpen(false);
   }, [visibility]);
+  // Tab 切换时清理该 Tab 不适用的切面选择。
+  // 不做这一步会出现「静默空列表」：在 DROP 下选了「表」再切到 CHANGE（无 table 切面），
+  // 结果为空且界面上没有任何可见原因。裁剪后为空则回落 ALL。
+  useEffect(() => {
+    const cur = aspectFilter;
+    const next = pruneAspectFilter(cur, diffFilter);
+    const unchanged =
+      cur === next ||
+      (Array.isArray(cur) && Array.isArray(next) && cur.length === next.length && cur.every((a, i) => a === next[i]));
+    if (!unchanged) setAspectFilter(next);
+  }, [diffFilter, aspectFilter, setAspectFilter]);
 
   const status = comparing
     ? (progress || '对比中…')
@@ -2210,6 +2222,7 @@ export default function App() {
                 diffFilter={diffFilter}
                 objectTypeFilter={objectTypeFilter}
                 aspectFilter={aspectFilter}
+                aspectScope={aspectScope}
                 aspectCounts={aspectCounts}
                 objCounts={objCounts}
                 verbFilter={verbFilter}
