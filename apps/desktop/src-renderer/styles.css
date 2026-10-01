@@ -92,6 +92,8 @@ kbd { background: #1e293b; border: 1px solid #334155; border-radius: 4px; paddin
 button.star { background: none; border: none; cursor: pointer; font-size: 14px; padding: 0 2px; }
 .mono { font-family: Menlo, Consolas, monospace; }
 .diff-scroll { flex: 1; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+/* 渲染窗口提示：告知还有未渲染的行，滚到底会自动加页 */
+.diff-more { padding: 8px; text-align: center; font-size: 11px; color: #64748b; border-top: 1px solid #1e293b; }
 .diff-row { cursor: pointer; border-top: 1px solid #1e293b; }
 .diff-row:hover { background: #1b2534; }
 .diff-row.selected { background: #1d2c46 !important; outline: 1px solid #3b82f6; }

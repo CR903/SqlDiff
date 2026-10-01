@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { VERB_CHIPS, useDesktopStore, type AspectFilter, type DiffFilter, type LeftTab, type ObjectTypeFilter, type SlotId, type VerbFilter } from './store';
 import type { CompareResult, CoverageReason, DataTableStatus, DiffItem, ExcludedObject, HistoryEntry, NodeMeta, ObjectType, ObjectTypeWithData, SecretBundle, StmtAspect, Verb } from '../src-core/types';
 import { sanitizeIpcError } from '../src-core/ipc-error';
@@ -56,6 +56,11 @@ const OBJ_CHIPS: Array<{ value: ObjectTypeWithData; label: string }> = [
   { value: 'function', label: '函数' },
   { value: 'data', label: '数据' },
 ];
+
+import { hasMoreRows, nextWindowLimit, ROW_WINDOW, windowRows } from './row-window';
+
+/** 关键字重计算的 debounce 间隔（ms）。输入框本身不延迟，只延迟过滤链。 */
+const KEYWORD_DEBOUNCE_MS = 200;
 
 function riskClass(risk: string): string {
   if (risk === 'high') return 'risk-high';
@@ -569,6 +574,27 @@ function DiffTable({
   const isAspectOn = (a: StmtAspect): boolean =>
     aspectFilter !== 'ALL' && aspectFilter.includes(a);
   const isVerbOn = (v: Verb): boolean => verbFilter !== 'ALL' && verbFilter.includes(v);
+
+  // 渲染窗口：全量渲染 3000+ 行会产生 5 万+ DOM 节点（实测 3135 行 → 57,673 元素），
+  // 单次筛选实测阻塞主线程约 3s。这里只渲染前 N 行，滚到底自动加页。
+  // 窗口计算已抽为 row-window.ts 纯函数并单测，避免逻辑埋在组件里无从验证。
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [limit, setLimit] = useState(ROW_WINDOW);
+  const shownRows = useMemo(() => windowRows(rows, limit), [rows, limit]);
+  const handleScroll = useCallback((): void => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const next = nextWindowLimit({ scrollTop: el.scrollTop, clientHeight: el.clientHeight, scrollHeight: el.scrollHeight }, limit, rows.length);
+    if (next !== limit) setLimit(next);
+  }, [limit, rows.length]);
+  // 过滤结果变化 -> 回到第一页并复位滚动位置（否则用户停在原滚动偏移，看到的是不相干的中段内容）。
+  // 只依赖 rows 的引用：任一筛选维度变化都会产生新数组，但滚动加页只改 limit，不会触发。
+  useEffect(() => {
+    setLimit(ROW_WINDOW);
+    const el = scrollRef.current;
+    if (el) el.scrollTop = 0;
+  }, [rows]);
+
   return (
     <div className="card diff-card">
       <div className="diff-tabs">
@@ -658,7 +684,7 @@ function DiffTable({
           </button>
         ))}
       </div>
-      <div className="diff-scroll">
+      <div className="diff-scroll" ref={scrollRef} onScroll={handleScroll}>
         <table className="diff-table">
           <thead>
             <tr>
@@ -669,7 +695,7 @@ function DiffTable({
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {shownRows.map((r) => (
               <tr
                 key={r.id}
                 className={selectedId === r.id ? 'diff-row selected' : 'diff-row'}
@@ -688,6 +714,13 @@ function DiffTable({
           </tbody>
         </table>
         {rows.length === 0 && <div className="empty">空空如也 — 换个 Tab / 类型过滤或清空表过滤试试 🍃</div>}
+        {/* 渲染窗口：全量渲染 3000+ 行会产生 5 万+ DOM 节点，实测单次筛选阻塞主线程约 3s。
+            这里只渲染窗口，滚到底自动加页；过滤结果变化时回到第一页并复位滚动。 */}
+        {hasMoreRows(shownRows.length, rows.length) && (
+          <div className="diff-more">
+            已显示 {shownRows.length} / 共 {rows.length} 条 —— 继续下拉自动加载
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1783,21 +1816,38 @@ export default function App() {
     return () => document.removeEventListener('keydown', onKey);
   }, [runCompare]);
 
-  const kw = tableFilter.trim().toLowerCase();
+  // 关键字过滤做 debounce：输入框保持即时响应，只延迟这条重计算链。
+  // 刻意不在输入端 debounce——tableFilter 同时会传给 compare.run，
+  // 那里若被延迟，按 ⌘/Ctrl+Enter 可能用到旧值去查表。
+  const [kwNow, setKwNow] = useState(tableFilter);
+  useEffect(() => {
+    const t = setTimeout(() => setKwNow(tableFilter), KEYWORD_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [tableFilter]);
+  const kw = kwNow.trim().toLowerCase();
+  // 检索键预计算：原先每次按键都对全量 items 的 objectName/sql 做 toLowerCase()，
+  // 3135 条 × KB 级 SQL ≈ 每按键数 MB 字符串分配。改为 items 变化时算一次。
+  // 内存代价：多存一份小写副本（约数 MB），换取按键 O(n) 的 includes。
+  // 只有表与数据行参与关键字（与 fetchMetadata/postFilterResult 语义一致），故只索引这两类。
+  const searchIndex = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const it of items) {
+      if (it.objectType !== 'table' && it.objectType !== 'data') continue;
+      m.set(it.id, `${it.objectName}\n${it.sql}`.toLowerCase());
+    }
+    return m;
+  }, [items]);
   // R4 单表统一过滤链（结构 + 数据同表，复制/导出与 DiffTable 行同源，复制=所见）：
-  // 关键字（仅作用于表 + 数据行，与 fetchMetadata/postFilterResult 一致，视图/例程不受影响）
-  // → 对象（多选 OR）→ 切面（多选 OR）→ CREATE/DROP/CHANGE Tab + 动词（多选 OR）；组间 AND。
+  // 关键字（仅作用于表 + 数据行）→ 对象（多选 OR）→ 切面（多选 OR）→ CREATE/DROP/CHANGE Tab + 动词（多选 OR）；组间 AND。
   const byKw = useMemo(
     () =>
       kw
-        ? items.filter(
-            (it) =>
-              (it.objectType !== 'table' && it.objectType !== 'data') ||
-              it.objectName.toLowerCase().includes(kw) ||
-              it.sql.toLowerCase().includes(kw),
-          )
+        ? items.filter((it) => {
+            if (it.objectType !== 'table' && it.objectType !== 'data') return true;
+            return searchIndex.get(it.id)?.includes(kw) ?? true;
+          })
         : items,
-    [items, kw],
+    [items, kw, searchIndex],
   );
   const objSet = useMemo(
     () => (objectTypeFilter === 'ALL' ? null : new Set<ObjectTypeWithData>(objectTypeFilter)),
