@@ -36,14 +36,14 @@ DBeaverExportResult = {
 
 The main handler accepts `unknown` at runtime, validates it through `resolveDBeaverNodes`, and returns the typed result. The preload method is a thin `ipcRenderer.invoke` bridge.
 
-Renderer download helpers in `src-renderer/sql.ts` (the module may import bridge types from `src-main/preload.ts` with `import type`):
+Renderer export helpers in `src-renderer/sql.ts` (the module may import bridge types from `src-main/preload.ts` with `import type`):
 
 ```ts
-downloadTextFile(filename: string, text: string, mimeType: string): void
-downloadJsonFile(filename: string, text: string): void
+saveTextFile(defaultName: string, text: string, title: string): Promise<ExportOutcome>
+exportSavedMessage(prefix: string, filePath: string): string
 ```
 
-`downloadJsonFile` delegates to the existing Blob/`will-download` path; it must not add a renderer-side filesystem write.
+`saveTextFile` goes through `file.save` (`kind: 'file'`) so the user picks the directory and filename in the system save dialog; the returned path is echoed in the success toast. It must not add a renderer-side filesystem write. `downloadTextFile` remains only as the no-main-process browser fallback.
 
 ## 3. Contracts
 
@@ -79,7 +79,7 @@ All errors are domain-prefixed and may be shown after `sanitizeIpcError` at the 
 
 - `src-main/converters/dbeaver.test.ts` must assert direct, password-SSH, private-key-SSH, multi-node deterministic ordering, duplicate/empty/invalid input, warning behavior, and a sentinel-polluted object with no secret output.
 - The full gate must run `npm run typecheck`, `npm run lint`, `npm test`, and `npm run build` from `apps/desktop`.
-- UI/export changes require a trusted CDP pass: open the selection modal, toggle all/none, click export with `Input.dispatchMouseEvent`, and verify the `will-download` file exists and parses as the returned JSON.
+- UI/export changes require a trusted CDP pass: open the selection modal, toggle all/none, click export with `Input.dispatchMouseEvent`, accept the native save dialog, and verify the file exists at the returned path and parses as the returned JSON.
 - The CDP harness remains temporary; persist only the report and non-sensitive evidence.
 
 ## 7. Wrong vs Correct
@@ -96,16 +96,17 @@ const ids = [...new Set(idsFromRenderer)]; // silently hides duplicate input
 ```ts
 const selected = resolveDBeaverNodes(loadNodes(userDataDir), ids);
 const result = createDBeaverExportResult(selected);
-// renderer downloads result.content; no Vault call and no SecretBundle crosses IPC
+// renderer saves result.content via file.save; no Vault call and no SecretBundle crosses IPC
 ```
 
-Likewise, use trusted input and a real download assertion for the UI path:
+Likewise, use trusted input and a real save assertion for the UI path:
 
 ```ts
 // Wrong: el.click() alone does not prove a saved file.
 element.click();
 
-// Correct: dispatch a trusted mouse event and inspect the will-download target.
+// Correct: dispatch a trusted mouse event, then verify the path file.save returned.
 cdp.send('Input.dispatchMouseEvent', trustedClick);
-await waitForDownload('data-sources-sqldiff.json');
+await acceptNativeSaveDialog();
+expect(fs.existsSync(await lastToastPath())).toBe(true);
 ```

@@ -9,10 +9,10 @@ import type { DataTableLists, DBeaverExportResult, NodeCreateInput, SqlDiffApi }
 import {
   buildExportText,
   copyText,
-  downloadJsonFile,
-  downloadSqlFile,
-  downloadTextFile,
+  exportSavedMessage,
   highlightSql,
+  saveTextFile,
+  saveTextFiles,
 } from './sql';
 
 // M5 正式 UI 三栏联调：左 NodeLibrary / 中 CompareSlots + DiffTable / 右 SqlPreview。
@@ -952,14 +952,24 @@ function SqlPreview({
     onToast(ok ? `已复制 ${current.length} 条 SQL 到剪贴板` : '复制失败：无剪贴板权限');
   };
 
-  const handleExport = (): void => {
+  const handleExport = async (): Promise<void> => {
     if (current.length === 0) {
       onToast('暂无可导出 SQL');
       return;
     }
     try {
-      downloadSqlFile(`sqldiff_${Date.now()}.sql`, exportText);
-      onToast(`已导出 .sql（含头注释，顺序 DROP→CREATE→CHANGE，共 ${current.length} 条）`);
+      const outcome = await saveTextFile(
+        `sqldiff_${Date.now()}.sql`,
+        exportText,
+        '导出 SqlDiff SQL',
+      );
+      if (outcome.status === 'canceled') return;
+      const prefix = `已导出 .sql（顺序 DROP→CREATE→CHANGE，共 ${current.length} 条）`;
+      onToast(
+        outcome.status === 'saved'
+          ? exportSavedMessage(prefix, outcome.filePath)
+          : `${prefix}（当前为预览模式，文件由浏览器下载）`,
+      );
     } catch (e) {
       onToast(`导出失败：${sanitizeIpcError(e)}`);
     }
@@ -973,7 +983,7 @@ function SqlPreview({
           <button className="btn btn-primary btn-sm" onClick={() => void handleCopy()}>
             {selected ? '⧉ 复制单条' : `⧉ 复制当前Tab（${current.length}条）`}
           </button>
-          <button className="btn btn-sm" onClick={handleExport}>
+          <button className="btn btn-sm" onClick={() => void handleExport()}>
             导出 .sql
           </button>
         </div>
@@ -1017,7 +1027,7 @@ function DBeaverExportModal({
 }: {
   nodes: NodeMeta[];
   onClose: () => void;
-  onExported: (result: DBeaverExportResult) => void;
+  onExported: (result: DBeaverExportResult, filePath: string) => void;
 }) {
   const exportDbeaver = useDesktopStore((s) => s.exportDbeaver);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(nodes.map((node) => node.id)));
@@ -1054,9 +1064,14 @@ function DBeaverExportModal({
     setError(null);
     try {
       const result = await exportDbeaver([...selectedIds]);
-      downloadJsonFile(result.fileName, result.content);
+      const outcome = await saveTextFile(result.fileName, result.content, '导出 DBeaver 连接配置');
       setExporting(false);
-      onExported(result);
+      // 取消保存 = 用户主动放弃，弹窗保留已选节点以便重试（与系统另存为的行为一致）。
+      if (outcome.status === 'canceled') {
+        setError('已取消导出，未写入文件');
+        return;
+      }
+      onExported(result, outcome.status === 'saved' ? outcome.filePath : '');
       onClose();
     } catch (e) {
       setExporting(false);
@@ -1662,20 +1677,32 @@ export default function App() {
       .catch((e: unknown) => setToast(sanitizeIpcError(e)));
   };
 
-  const handleExport = (): void => {
-    void exportDoc()
-      .then((doc) => {
-        downloadJsonFile(`sqldiff_nodes_${Date.now()}.json`, JSON.stringify(doc, null, 2));
-        setToast(`已导出 ${doc.nodes.length} 个节点（密码已加密，无明文）`);
-      })
-      .catch((e: unknown) => setToast(sanitizeIpcError(e)));
+  const handleExport = async (): Promise<void> => {
+    try {
+      const doc = await exportDoc();
+      const outcome = await saveTextFile(
+        `sqldiff_nodes_${Date.now()}.json`,
+        JSON.stringify(doc, null, 2),
+        '导出 SqlDiff 节点配置',
+      );
+      if (outcome.status === 'canceled') return;
+      const prefix = `已导出 ${doc.nodes.length} 个节点（密码已加密，无明文）`;
+      setToast(
+        outcome.status === 'saved'
+          ? exportSavedMessage(prefix, outcome.filePath)
+          : `${prefix}（当前为预览模式，文件由浏览器下载）`,
+      );
+    } catch (e) {
+      setToast(sanitizeIpcError(e));
+    }
   };
 
-  const handleDbeaverExported = (result: DBeaverExportResult): void => {
+  const handleDbeaverExported = (result: DBeaverExportResult, filePath: string): void => {
     const warning = result.warnings[0]
       ? `；${result.warnings.length} 条 SSH 密钥待补：${result.warnings[0]}`
       : '';
-    setToast(`已生成 DBeaver 配置（${result.exportedCount} 个节点，未迁移密码/私钥）${warning}`);
+    const prefix = `已生成 DBeaver 配置（${result.exportedCount} 个节点，未迁移密码/私钥）${warning}`;
+    setToast(filePath ? exportSavedMessage(prefix, filePath) : `${prefix}（当前为预览模式，文件由浏览器下载）`);
   };
 
   const handleImportFile = (file: File): void => {
@@ -1730,10 +1757,23 @@ export default function App() {
         appVersion,
       });
       const names = manifestFileNames(m.exportedAt);
-      downloadJsonFile(names.jsonFileName, serializeManifest(m));
-      downloadTextFile(names.markdownFileName, manifestToMarkdown(m), 'text/markdown;charset=utf-8');
+      // JSON + Markdown 走同一次「选目录」，避免连弹两次对话框。
+      const outcome = await saveTextFiles(
+        [
+          { name: names.jsonFileName, content: serializeManifest(m) },
+          { name: names.markdownFileName, content: manifestToMarkdown(m) },
+        ],
+        '导出审查报告（JSON + Markdown）',
+      );
+      if (outcome.status === 'canceled') return;
       const statusNote = m.coverageStatus.kind === 'ok' ? '' : `（覆盖状态：${m.coverageStatus.kind}）`;
-      setToast(`已导出审查报告：JSON + Markdown${statusNote}`);
+      const prefix = `已导出审查报告：JSON + Markdown${statusNote}`;
+      if (outcome.status === 'saved') {
+        const dir = outcome.filePaths[0]?.replace(/[/\\][^/\\]*$/, '') ?? '';
+        setToast(exportSavedMessage(`${prefix}，目录`, dir));
+      } else {
+        setToast(`${prefix}（当前为预览模式，文件由浏览器下载）`);
+      }
     } catch (e) {
       setToast(`导出失败：${sanitizeIpcError(e)}`);
     }
@@ -1773,7 +1813,7 @@ export default function App() {
           onEditNode={(id) => setNodeModal({ editingId: id })}
           onRemoveNode={handleRemoveNode}
           onTestNode={handleTestNode}
-          onExport={handleExport}
+          onExport={() => void handleExport()}
           onExportDbeaver={() => setDbeaverExportOpen(true)}
           onImportFile={handleImportFile}
           onImportLegacy={handleImportLegacy}

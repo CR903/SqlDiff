@@ -36,7 +36,7 @@ These are correctness contracts, not cleanup opportunities:
 - Filtering and export must describe the same `DiffItem` model. The renderer's table and unselected bulk copy/export use its final filtered list; selecting a `DiffItem` intentionally narrows `SqlPreview` copy/export/risk/rollback to that item. Toggle counters intentionally use an upstream stage; `recountStats` and compare-result statistics must be updated together whenever `DiffItem` or `CompareStats` gains a field.
 - Data comparison uses PK first, then an all-`NOT NULL` UNIQUE identity. No identity skips the table, mismatched identities mark that table failed, and a threshold confirmation reruns with explicit consent.
 - Close assigned pools in `finally`, reuse/close SSH tunnels through `connection.ts`, and cancel long data reads through the `AbortSignal` path; review the documented partial-construction gap separately.
-- Keep renderer downloads and main-process save policy paired. `downloadSqlFile` initiates the Blob anchor and `registerWillDownload` sets the Downloads path. The renderer success toast is optimistic because there is no completion IPC; CDP/file inspection is the proof of a successful write.
+- `file.save` in `src-main/save-file.ts` is the only disk-writing path for exports. It prompts with the system save dialog (single file) or a directory picker (multi-file bundle), then returns the real absolute paths. Every export success toast must include that returned path; never report an optimistic "已导出" with no location. `registerWillDownload` is a fallback for the no-main-process Blob path only, not the primary export mechanism.
 
 ## Test Strategy
 
@@ -47,7 +47,7 @@ Tests are Vitest files, mostly colocated, and avoid live infrastructure by extra
 - SQL text, escaping, result shapes, and concurrency: `src-main/metadata.test.ts` and `src-main/data-fetch.test.ts`;
 - secret persistence/export and JSON storage: `src-core/vault.test.ts` (it exercises the main-process `vault.ts` and `store-json.ts`);
 - row identity decisions: `src-main/data-run-identity.test.ts`;
-- download and IPC error regressions: `src-main/download.test.ts` and `src-core/ipc-error.test.ts`;
+- download, export-save, and IPC error regressions: `src-main/download.test.ts`, `src-main/save-file.test.ts`, and `src-core/ipc-error.test.ts`;
 - compare/data 应用服务集成测试（cleanup/cancel/partial failure）：`src-main/compare-run.integration.test.ts` 与 `src-main/data-run.integration.test.ts`（模块级 mock 连接层，被测编排逻辑全真）。
 
 Add or update a test in the same relevant layer as the change, preserving the documented storage exception. Test null/empty input, compatibility edges, and cleanup paths, not just the happy path. For filesystem tests, use temporary directories and remove them in `afterEach`, as in `vault.test.ts`.
@@ -71,6 +71,7 @@ For UI, data-flow, clipboard, confirm-dialog, or download changes, use the trust
 - MySQL access remains read-only, executed identifiers are escaped, assigned resources are closed, and generated SQL is never sent to a pool; review the documented partial-construction gap separately.
 - Real secrets and exported data remain encrypted and absent from diagnostics/tests.
 - Shared contracts, handlers, preload methods, and renderer callers stay synchronized.
-- DBeaver topology export follows the [DBeaver Export Contract](./dbeaver-export.md): keep the exporter deterministic, validate the IPC boundary with the documented prefixes, and prove the topology-only/no-secret path with its focused tests and CDP download check.
+- DBeaver topology export follows the [DBeaver Export Contract](./dbeaver-export.md): keep the exporter deterministic, validate the IPC boundary with the documented prefixes, and prove the topology-only/no-secret path with its focused tests and CDP save check.
+- Export paths go through `file.save` and report the real saved location; cancel is a non-error outcome, not a failure.
 - Regression tests cover the changed invariant; full typecheck, lint, test, and build pass.
 - `mysqldiff/` has no task-authored diff (compare with the task baseline because its standalone working tree may already be dirty), and generated `dist-*` / `release/` files were not edited.

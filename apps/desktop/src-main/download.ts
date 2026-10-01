@@ -1,4 +1,6 @@
-// P0 导出落盘：主进程 will-download 静默落盘到系统 Downloads 目录（保持无弹窗体验）。
+// 导出兜底：主进程 will-download 静默落盘到系统 Downloads 目录。
+// 正规导出路径已改为 file.save（系统另存为对话框 + 真实路径回传），本模块只兜住
+// 渲染层 Blob 回落（无主进程的浏览器预览模式在 Electron 内不会触发）。
 // 纯接口模块（不直引 electron，单测用假 session/item 断言）；main.ts 在 app ready 内注册一次。
 
 import path from 'node:path';

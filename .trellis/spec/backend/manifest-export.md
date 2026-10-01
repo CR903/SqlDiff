@@ -28,11 +28,14 @@ export function manifestToMarkdown(m: ReviewManifest): string;
 export function manifestFileNames(exportedAt: string): { jsonFileName: string; markdownFileName: string };
 ```
 
-IPC contract (only addition):
+IPC contract:
 
 ```ts
 SqlDiffApi.app.version(): Promise<string>   // ipcRenderer.invoke('app.version') -> app.getVersion()
+SqlDiffApi.file.save(request: SaveRequest): Promise<SaveResult>   // system save dialog + real disk write
 ```
+
+`file.save` is the only file-writing channel shared by all exports (see [Quality Guidelines](./quality-guidelines.md#export-save-path)).
 
 Manifest build and serialization run entirely in the renderer as pure functions. The main process only supplies the app version; it never receives the result, request, or manifest.
 
@@ -42,7 +45,7 @@ Manifest build and serialization run entirely in the renderer as pure functions.
 - **Deterministic projection**: field order is the type-declaration order (object literal insertion order); `serializeManifest` is byte-stable for identical input, matching the DBeaver export determinism contract.
 - **No rollback / explain**: `ReviewManifestItem` deliberately omits both. Achieved by not copying the fields, never by copy-then-delete.
 - **Secret boundary**: manifest JSON/Markdown must never contain `password`, `sshPassword`, `privateKey`, `passphrase`, `vaultCiphertext`, `userPassword`, `SecretBundle`, or connection strings. `redactDmlSql` is applied inside `serializeManifest` / `manifestToMarkdown` to `objectType === 'data'` items only. The in-memory manifest keeps original SQL because the renderer already owns the real DML for the data panel; the downloaded artifacts are redacted.
-- **Filename**: `sqldiff-review-<exportedAt with : and . replaced by ->.json` / `.md`, e.g. `sqldiff-review-2026-09-30T10-00-00-000Z.json`. Reuses `downloadJsonFile` / `downloadTextFile`.
+- **Filename**: `sqldiff-review-<exportedAt with : and . replaced by ->.json` / `.md`, e.g. `sqldiff-review-2026-09-30T10-00-00-000Z.json`. Both files are written in one call through `saveTextFiles` (`kind: 'bundle'`), which prompts for a single directory instead of two consecutive save dialogs.
 - **No execution entry**: manifest modules never call a pool, never execute SQL, and never touch Vault. `mysqldiff/` is untouched.
 
 ## 4. CoverageStatus Mapping
@@ -112,9 +115,14 @@ delete item.rollback;
 delete item.explain;
 
 // Wrong: serializing the in-memory sql directly, leaking row values
-downloadJsonFile(name, JSON.stringify(m.items, null, 2));
+saveTextFiles([{ name, content: JSON.stringify(m.items, null, 2) }], '导出');
 
 // Correct: redaction happens in the output layer, DDL untouched
-downloadJsonFile(name, serializeManifest(m));
-downloadTextFile(name, manifestToMarkdown(m), 'text/markdown;charset=utf-8');
+// One directory pick, both files written; the toast reports the real path.
+const names = manifestFileNames(m.exportedAt);
+const outcome = await saveTextFiles([
+  { name: names.jsonFileName, content: serializeManifest(m) },
+  { name: names.markdownFileName, content: manifestToMarkdown(m) },
+], '导出审查报告（JSON + Markdown）');
+if (outcome.status === 'canceled') return;
 ```

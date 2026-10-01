@@ -311,10 +311,12 @@ function copySQL(){
   doCopy();
 }
 function exportSQL(){
+  // 原型无主进程，无法弹系统另存为；此处用浏览器下载近似，toast 明示落点由浏览器决定。
+  const name='sqldiff_'+Date.now()+'.sql';
   const blob=new Blob([plainSQL()],{type:'text/sql'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-  a.download='sqldiff_'+Date.now()+'.sql'; a.click(); URL.revokeObjectURL(a.href);
-  toast('已导出 .sql（含头注释，顺序 DROP→CREATE→CHANGE）');
+  a.download=name; a.click(); URL.revokeObjectURL(a.href);
+  toast('已导出 '+name+'（浏览器下载目录，原型无另存为对话框）');
 }
 
 // ── toast ──

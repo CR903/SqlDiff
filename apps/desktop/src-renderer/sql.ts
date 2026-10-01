@@ -98,7 +98,7 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** Blob 文本下载（仍由主进程 will-download 策略决定最终保存路径）。 */
+/** Blob 文本下载（无主进程时的浏览器回落路径；有主进程时应走 saveTextFile）。 */
 export function downloadTextFile(filename: string, text: string, mimeType: string): void {
   const blob = new Blob([text], { type: mimeType });
   const url = URL.createObjectURL(blob);
@@ -114,12 +114,63 @@ export function downloadTextFile(filename: string, text: string, mimeType: strin
   }
 }
 
-/** Blob 下载 .sql 文件（渲染进程直做，不经主进程，离线可用）。 */
-export function downloadSqlFile(filename: string, text: string): void {
-  downloadTextFile(filename, text, 'text/sql;charset=utf-8');
+// -- 导出落盘（主进程另存为对话框）--------------------------------------------
+
+/** 导出结果：saved 带真实落盘路径；canceled 为用户取消（不是错误）；fallback 为无主进程的浏览器下载。 */
+export type ExportOutcome =
+  | { status: 'saved'; filePath: string }
+  | { status: 'canceled' }
+  | { status: 'fallback' };
+
+/** 多文件导出结果（报告 JSON+MD 共用一次目录选择）。 */
+export type ExportBundleOutcome =
+  | { status: 'saved'; filePaths: string[] }
+  | { status: 'canceled' }
+  | { status: 'fallback' };
+
+/**
+ * 导出单个文本文件：优先走主进程「另存为」对话框（用户选目录/文件名），
+ * 落盘成功后回传真实路径；无主进程（浏览器预览/离线）回落 Blob 下载。
+ */
+export async function saveTextFile(
+  defaultName: string,
+  text: string,
+  title: string,
+): Promise<ExportOutcome> {
+  const api = ipc();
+  if (!api) {
+    downloadTextFile(defaultName, text, mimeTypeOf(defaultName));
+    return { status: 'fallback' };
+  }
+  const r = await api.file.save({ kind: 'file', defaultName, content: text, title });
+  return r.status === 'saved' ? { status: 'saved', filePath: r.filePaths[0] ?? '' } : { status: 'canceled' };
 }
 
-/** Blob 下载 JSON 文件，复用同一条可信下载路径。 */
-export function downloadJsonFile(filename: string, text: string): void {
-  downloadTextFile(filename, text, 'application/json;charset=utf-8');
+/** 批量导出：一次「选目录」写完所有文件（避免连弹 N 次对话框）。 */
+export async function saveTextFiles(
+  files: { name: string; content: string }[],
+  title: string,
+): Promise<ExportBundleOutcome> {
+  const api = ipc();
+  if (!api) {
+    files.forEach((f) => downloadTextFile(f.name, f.content, mimeTypeOf(f.name)));
+    return { status: 'fallback' };
+  }
+  return api.file.save({ kind: 'bundle', files, title });
+}
+
+const MIME_BY_EXT: Record<string, string> = {
+  sql: 'text/sql;charset=utf-8',
+  json: 'application/json;charset=utf-8',
+  md: 'text/markdown;charset=utf-8',
+};
+
+function mimeTypeOf(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+  return MIME_BY_EXT[ext] ?? 'text/plain;charset=utf-8';
+}
+
+/** 导出成功 toast 的统一文案：带真实落盘路径（用户最需要知道的就是这个）。 */
+export function exportSavedMessage(prefix: string, filePath: string): string {
+  return filePath ? `${prefix}：${filePath}` : prefix;
 }

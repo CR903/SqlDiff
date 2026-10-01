@@ -10,8 +10,10 @@ import type {
   SshConfig,
 } from '../src-core/types';
 import type { DBeaverExportResult } from './converters/dbeaver';
+import type { SaveRequest, SaveResult } from './save-file';
 
 export type { DBeaverExportResult } from './converters/dbeaver';
+export type { SaveRequest, SaveResult } from './save-file';
 
 // M2：nodes CRUD / test / export / import / 老串导入 + history 接 vault。
 // M3：conn.test / nodes.test 接真实 mysql2/ssh2（含延迟 ms），见 ./connection。
@@ -103,6 +105,14 @@ export interface SqlDiffApi {
     format: (sql: string) => Promise<string>;
     copy: (text: string) => Promise<boolean>;
   };
+  file: {
+    /**
+     * 导出落盘唯一通道：弹系统对话框让用户自选目录/文件名。
+     * 单文件走「另存为」，多文件（报告 JSON+MD）走「选目录」一次写完。
+     * 返回真实落盘路径；用户取消返回 `{ status: 'canceled' }`（不是错误）。
+     */
+    save: (request: SaveRequest) => Promise<SaveResult>;
+  };
   app: {
     /** 应用版本（package.json version，审查报告头部用）。 */
     version: () => Promise<string>;
@@ -148,6 +158,9 @@ const api: SqlDiffApi = {
   sql: {
     format: (sql: string) => ipcRenderer.invoke('sql.format', sql) as Promise<string>,
     copy: (text: string) => ipcRenderer.invoke('sql.copy', text) as Promise<boolean>,
+  },
+  file: {
+    save: (request: SaveRequest) => ipcRenderer.invoke('file.save', request) as Promise<SaveResult>,
   },
   app: {
     version: () => ipcRenderer.invoke('app.version') as Promise<string>,

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { app, BrowserWindow, clipboard, ipcMain, safeStorage, session } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, session } from 'electron';
 import type { Pool } from 'mysql2/promise';
 import type {
   ConnTestResult,
@@ -25,6 +26,7 @@ import {
 import { Vault, parseLegacyConnectionString, type SafeStorageLike } from './vault';
 import { closeAll, createMysqlPool, testConnection } from './connection';
 import { registerWillDownload } from './download';
+import { parseSaveRequest, saveFiles } from './save-file';
 import { listTables } from './metadata';
 import {
   createDBeaverExportResult,
@@ -358,6 +360,26 @@ function registerIpc(): void {
       return false;
     }
   });
+
+  // 导出落盘唯一通道：弹系统对话框让用户自选位置，成功回传真实绝对路径。
+  // 此前走渲染层 Blob + will-download 静默落 Downloads，渲染层拿不到回执，
+  // 只能报一句乐观的「已导出」——用户不知道落在哪，也无法改位置。
+  ipcMain.handle('file.save', async (event, payload: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return saveFiles(
+      {
+        dialog: {
+          showSaveDialog: (options) =>
+            win ? dialog.showSaveDialog(win, options) : dialog.showSaveDialog(options),
+          showOpenDialog: (options) =>
+            win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options),
+        },
+        writer: fs,
+        getDefaultDir: () => app.getPath('downloads'),
+      },
+      parseSaveRequest(payload),
+    );
+  });
 }
 
 // -- 窗口 --------------------------------------------------------------------
@@ -395,7 +417,7 @@ function createWindow(): void {
 
 void app.whenReady().then(() => {
   registerIpc();
-  // P0 导出必落盘：静默落盘到系统 Downloads（保持无弹窗体验，此前无 handler 默认行为不落盘）。
+  // 导出兜底：正规路径走 file.save 另存为对话框；此处静默落 Downloads 只兜渲染层 Blob 回落。
   registerWillDownload(session.defaultSession, () => app.getPath('downloads'));
   createWindow();
   app.on('activate', () => {
