@@ -21,6 +21,7 @@ import {
   validateDraft,
   type LegacyDraft,
 } from './legacy-import';
+import { countAspects, type AspectCountKey } from '../src-core/compare-filter';
 
 // M5 正式 UI 三栏联调：左 NodeLibrary / 中 CompareSlots + DiffTable / 右 SqlPreview。
 // 交互参考 apps/desktop-mock/index.html；数据经 store 接 IPC（window.sqldiff），
@@ -54,6 +55,33 @@ const OBJ_CHIPS: Array<{ value: ObjectTypeWithData; label: string }> = [
   { value: 'procedure', label: '过程' },
   { value: 'function', label: '函数' },
   { value: 'data', label: '数据' },
+];
+
+/** 可切换过滤的切面（`table`/`routine`/`data` 三桶无独立 chip，见下方注释）。 */
+type AspectFilterKey = AspectCountKey;
+
+/**
+ * 切面 chips（多选 OR；与对象/动词/Tab 正交 AND）。
+ * 只暴露 index / primary / column 三个「表内部结构」切面——
+ * `table`（整表 CREATE/DROP）由上方 Tab=DROP/CREATE 表达，`routine`/`data` 由对象 chips 表达，
+ * 再单列一排只会重复且互相盖掉计数。
+ */
+const ASPECT_CHIPS: Array<{ value: AspectFilterKey; label: string; title: string }> = [
+  {
+    value: 'index',
+    label: 'INDEX',
+    title: '仅看索引语句（ADD/DROP INDEX|KEY；PRIMARY KEY 归主键不归此类）',
+  },
+  {
+    value: 'primary',
+    label: '主键',
+    title: '仅看主键语句（PRIMARY KEY 增删）。注意「DROP PRIMARY KEY, ADD PRIMARY KEY」是原子换主键、表与数据都完好，仍会被 DROP Tab 收录',
+  },
+  {
+    value: 'column',
+    label: '列',
+    title: '仅看列语句（ADD/DROP/CHANGE/MODIFY COLUMN）。DROP COLUMN 会丢数据、风险为高',
+  },
 ];
 
 function riskClass(risk: string): string {
@@ -518,7 +546,7 @@ function DiffTable({
   diffFilter,
   objectTypeFilter,
   aspectFilter,
-  indexCount,
+  aspectCounts,
   objCounts,
   verbFilter,
   verbCounts,
@@ -541,8 +569,8 @@ function DiffTable({
   objectTypeFilter: ObjectTypeFilter;
   /** R4 切面多选；'ALL' = 不限，组内 OR。 */
   aspectFilter: AspectFilter;
-  /** 当前对象视图下的索引语句数（chip 标签用，不过滤自身）。 */
-  indexCount: number;
+  /** 当前对象视图下各切面的语句数（chip 标签用，不过滤自身）。 */
+  aspectCounts: Record<AspectFilterKey, number>;
   /** 对象 chip 计数基座（对象自身不过滤，保证开关可逆可见）。 */
   objCounts: Record<ObjectTypeWithData, number>;
   /** R7 动词桶选择（'ALL' = 不限；多选 OR，组间与对象/切面/Tab 正交 AND）。 */
@@ -610,13 +638,16 @@ function DiffTable({
             {f.label} ({objCounts[f.value]})
           </button>
         ))}
-        <button
-          className={isAspectOn('index') ? 'chip active' : 'chip'}
-          title="仅看索引语句（ADD/DROP INDEX|KEY；PRIMARY KEY 归主键不归此类，结构范围）"
-          onClick={() => onToggleAspect('index')}
-        >
-          INDEX ({indexCount})
-        </button>
+        {ASPECT_CHIPS.map((f) => (
+          <button
+            key={f.value}
+            className={isAspectOn(f.value) ? 'chip active' : 'chip'}
+            title={f.title}
+            onClick={() => onToggleAspect(f.value)}
+          >
+            {f.label} ({aspectCounts[f.value]})
+          </button>
+        ))}
       </div>
       <div className="obj-filters" title="按语句首动词过滤（CREATE/DROP/ALTER/INSERT/UPDATE/DELETE 多选；与对象/切面/Tab/关键字正交 AND；复制=所见）。与上方 Tab 的区别：Tab 看整条 SQL 的变更结果（CREATE/DROP/CHANGE），此处只看首关键字 —— 如 CREATE OR REPLACE 视图变更归 Tab CHANGE + 动词 CREATE。">
         <span className="diff-stat" style={{ marginLeft: 0 }}>
@@ -1805,11 +1836,11 @@ export default function App() {
         : byObj.filter((it) => (it.aspects ?? []).some((a) => aspSet.has(a))),
     [byObj, aspSet],
   );
-  // INDEX chip 标签计数（切面自身不过滤，保证开关可逆可见）。
-  const indexCount = useMemo(
-    () => byObj.filter((it) => (it.aspects ?? []).includes('index')).length,
-    [byObj],
-  );
+  // 切面 chip 标签计数（切面自身不过滤，保证开关可逆可见）。
+  // 必须覆盖 index/primary/column 三类：只给 INDEX 一个时，
+  // 「DROP + 表」会把 DROP TABLE 与 ALTER TABLE … DROP PRIMARY KEY 混在一起，
+  // 因为 PRIMARY KEY 刻意不归 index，用户又没有别的维度能把它筛掉。
+  const aspectCounts = useMemo(() => countAspects(byObj), [byObj]);
   const counts = useMemo(() => {
     const c: Record<DiffFilter, number> = { ALL: byAspect.length, CREATE: 0, DROP: 0, CHANGE: 0 };
     for (const it of byAspect) c[it.changeType] += 1;
@@ -2179,7 +2210,7 @@ export default function App() {
                 diffFilter={diffFilter}
                 objectTypeFilter={objectTypeFilter}
                 aspectFilter={aspectFilter}
-                indexCount={indexCount}
+                aspectCounts={aspectCounts}
                 objCounts={objCounts}
                 verbFilter={verbFilter}
                 verbCounts={verbCounts}

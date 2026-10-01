@@ -61,6 +61,29 @@ export function recountStats(items: DiffItem[]): CompareResult['stats'] {
 }
 
 /** R4 对象过滤（多选含数据行；'ALL'/空数组/选满 = 不限，组内 OR）。 */
+/**
+ * UI 可切换过滤的切面（`table`/`routine`/`data` 三桶另有 Tab 或对象 chip 表达，不单列）。
+ * 与 `ASPECT_ALL` 的差别是「哪些值得给用户单独一个开关」。
+ */
+export type AspectCountKey = 'index' | 'primary' | 'column';
+
+/**
+ * 各切面的条目数，供 UI 打 chip 标签。
+ * 计数基数由调用方给定（通常是「除切面自身外已过滤」的 byObj），
+ * 这样切面自身不参与过滤、开关始终可逆可见。
+ */
+export function countAspects(
+  items: readonly DiffItem[],
+): Record<AspectCountKey, number> {
+  const counts: Record<AspectCountKey, number> = { index: 0, primary: 0, column: 0 };
+  for (const it of items) {
+    for (const a of it.aspects ?? []) {
+      if (a in counts) counts[a as AspectCountKey] += 1;
+    }
+  }
+  return counts;
+}
+
 export type ObjectTypeFilter = 'ALL' | ObjectTypeWithData[];
 /** R4 切面过滤（多选；'ALL'/空数组/选满 = 不限，组内 OR）。 */
 export type AspectFilter = 'ALL' | StmtAspect[];
