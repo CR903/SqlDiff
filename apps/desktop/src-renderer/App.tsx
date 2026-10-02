@@ -62,6 +62,15 @@ import { hasMoreRows, nextWindowLimit, ROW_WINDOW, windowRows } from './row-wind
 /** 关键字重计算的 debounce 间隔（ms）。输入框本身不延迟，只延迟过滤链。 */
 const KEYWORD_DEBOUNCE_MS = 200;
 
+/**
+ * SQL 预览面板渲染的最多条数。实测：ALL Tab 未选行时 current=3135 条，
+ * highlightSql 全量 tokenize 后注入 <pre> 产生 35,578 个 DOM 节点
+ * （18,772 tok-kw + 11,446 tok- + 3,140 tok-cmt + 2,220 tok-num），
+ * 是 DROP→全部 3.0s、关键字输入 1.6s 的真正瓶颈（远超差异表本身）。
+ * 限量 30 条兼顾「预览够看」与「DOM 控制在约 1k 节点」；复制/导出仍基于全量。
+ */
+const SQL_PREVIEW_CAP = 30;
+
 function riskClass(risk: string): string {
   if (risk === 'high') return 'risk-high';
   if (risk === 'medium') return 'risk-med';
@@ -999,12 +1008,16 @@ function SqlPreview({
   const current = selected ? [selected] : tabItems;
   const hasDrop = current.some((it) => it.changeType === 'DROP');
 
-  const exportText = useMemo(
-    () => buildExportText(current, { aName, bName, at: new Date().toISOString() }),
-    // current 由 tabItems + selectedId 派生；直接依赖两者即可（引用每 render 都变，故不用 current 本身）。
-    [tabItems, selectedId, aName, bName],
+  // 预览只渲染前 N 条：未选行时 current=tabItems（ALL Tab 下 3135 条），
+  // 全量 highlightSql 会产生 35k+ DOM 节点（实测瓶颈）。选中单行时 current=[selected]，无需限量。
+  // 复制/导出按需在 handler 里算全量，不再每按键重建 3135 条 SQL 文本。
+  const previewCapped = !selected && tabItems.length > SQL_PREVIEW_CAP;
+  const previewText = useMemo(
+    () => buildExportText(selected ? [selected] : tabItems.slice(0, SQL_PREVIEW_CAP), { aName, bName, at: new Date().toISOString() }),
+    // selected 由 tabItems + selectedId 派生，依赖这两者即可。
+    [tabItems, selectedId, selected, aName, bName],
   );
-  const highlighted = useMemo(() => highlightSql(exportText), [exportText]);
+  const highlighted = useMemo(() => highlightSql(previewText), [previewText]);
 
   const confirmDropIfNeeded = (): boolean => {
     if (!hasDrop) return true;
@@ -1017,7 +1030,9 @@ function SqlPreview({
       return;
     }
     if (!confirmDropIfNeeded()) return;
-    const ok = await copyText(exportText);
+    // 按需算全量：预览已限量，复制必须含全部 current。
+    const fullText = buildExportText(current, { aName, bName, at: new Date().toISOString() });
+    const ok = await copyText(fullText);
     onToast(ok ? `已复制 ${current.length} 条 SQL 到剪贴板` : '复制失败：无剪贴板权限');
   };
 
@@ -1027,9 +1042,11 @@ function SqlPreview({
       return;
     }
     try {
+      // 按需算全量：导出含全部 current，与预览限量无关。
+      const fullText = buildExportText(current, { aName, bName, at: new Date().toISOString() });
       const outcome = await saveTextFile(
         `sqldiff_${Date.now()}.sql`,
-        exportText,
+        fullText,
         '导出 SqlDiff SQL',
       );
       if (outcome.status === 'canceled') return;
@@ -1057,7 +1074,13 @@ function SqlPreview({
           </button>
         </div>
       </div>
-      <div className="sql-mode">{selected ? `· 单条：${selected.objectName}` : `· 当前Tab全部（${current.length}条）`}</div>
+      <div className="sql-mode">
+        {selected
+          ? `· 单条：${selected.objectName}`
+          : previewCapped
+            ? `· 前 ${SQL_PREVIEW_CAP} 条预览（共 ${current.length} 条，复制 / 导出仍含全部）`
+            : `· 当前Tab全部（${current.length}条）`}
+      </div>
       {hasDrop && (
         <div className="drop-alert">⚠️ 含 <b>DROP</b> 高危语句：执行前请备份，复制需二次确认。</div>
       )}
