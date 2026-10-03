@@ -420,3 +420,25 @@ will-download落盘/错误消毒/全部Tab/筛选去重多选；verbOf动词chip
 ### Status
 
 [OK] **Completed** — PoC 完成，用户可看真实 dump 决定是否满意，不满意再评估 schema v2。
+
+
+## Session 17: UI 徽标三态同步（GO/DEGRADED/BLOCK）
+<!-- trellis-session: v=2 fp=f560a7160512aecc -->
+
+**Date**: 2026-10-04
+**Task**: UI 徽标三态同步（GO/DEGRADED/BLOCK）
+**Branch**: `main`
+
+### Summary
+
+UI 显示从 v1 四态（pass/warn/block/unknown）改为 v2 三态（GO/DEGRADED/BLOCK），与导出的 Markdown 报告保持一致。改动：App.tsx 导入 deriveDecision 使用三态决策显示徽标；store.ts toast 消息使用三态；styles.css 新增 .preflight-verdict-go / .preflight-verdict-degraded 样式，保留 v1 四态向后兼容。605/605 测试全绿，typecheck 通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `04c529f` | feat(preflight): UI 徽标三态同步（GO/DEGRADED/BLOCK） |
+
+### Status
+
+[OK] **Completed**
