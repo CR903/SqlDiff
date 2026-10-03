@@ -94,7 +94,7 @@ export function ruleBigTableCopy(input: RuleInput): PreflightIssue[] {
       detail: `TABLE_ROWS=${rows} 超过阈值 ${thresholds.bigTableRows}，且 ${cls.op} 判定 ${online.algorithm} + rebuildsTable。`,
       related: [rowsKey, `diff-item:${item.id}`, `server.mysql_version`],
       recommendation:
-        '考虑使用 pt-online-schema-change / gh-ost 分块复制；或将发布窗口调整到低峰时段。',
+        '考虑将发布窗口调整到低峰时段；对超大表建议改用支持在线 DDL 分块复制的迁移工具。',
     });
   }
   return issues;
@@ -126,7 +126,7 @@ export function ruleReadOnlyTarget(input: RuleInput): PreflightIssue[] {
       title: '目标库处于只读模式',
       detail: `${label}=ON；无法执行任何 DDL/DML。`,
       related: [key, 'server.mysql_version'],
-      recommendation: '发布前必须临时解除只读模式（SET GLOBAL read_only=0 / super_read_only=0）。',
+      recommendation: '发布前必须临时解除目标库的只读模式。',
     });
   }
   return issues;
@@ -372,7 +372,7 @@ export function ruleLargeTableRebuild(input: RuleInput): PreflightIssue[] {
         `diff-item:${item.id}`,
       ],
       recommendation:
-        '考虑使用 pt-online-schema-change / gh-ost 分块复制；或将发布窗口调整到低峰时段。',
+        '考虑将发布窗口调整到低峰时段；对超大表建议改用支持在线 DDL 分块复制的迁移工具。',
     });
   }
   return issues;

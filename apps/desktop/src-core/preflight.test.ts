@@ -69,7 +69,7 @@ function issue(overrides: Partial<PreflightIssue> = {}): PreflightIssue {
     title: '表 orders 变更将重建表',
     detail: 'TABLE_ROWS=2000000 超过阈值 1000000',
     related: ['table.orders.rows'],
-    recommendation: '考虑使用 gh-ost',
+    recommendation: '考虑使用在线迁移工具',
     ...overrides,
   };
 }
