@@ -23,6 +23,7 @@ This directory covers the React renderer in `apps/desktop/src-renderer`. The UI 
 - For `CompareResult` producers and consumers, follow the [Result Source and Coverage Contract](./type-safety.md#result-source-and-coverage-contract): every producer sets `source`, and both coverage gaps and a silently narrowed comparison scope must stay visible instead of being read as "no difference" or "fully checked".
 - For DBeaver export, follow [DBeaver Export Contract](../backend/dbeaver-export.md): the selection modal owns local selection, the store owns IPC, and the download must stay topology-only.
 - For DataGrip export, follow [DataGrip Export Contract](../backend/datagrip-export.md): the `ExportModal` is shared across both targets via the `target` prop, multi-file exports go through `saveTextFiles` (`kind: 'bundle'`), and the three XML files must stay deterministic and secret-free.
+- For export E2E, follow [E2E Harness](../backend/e2e-harness.md): the harness launches a real Electron instance with pre-populated `nodes.json`, uses `SQLDIFF_E2E_SAVE_DIR` env injection for save-dialog bypass, and requires both API-depth and UI-click tests.
 - Add a pure Vitest regression for filters/SQL helpers. For clicks, dialogs, clipboard, downloads, or real data flow, plan the CDP procedure in [Quality Guidelines](./quality-guidelines.md#cdp-end-to-end-checks).
 
 ## Quality Check

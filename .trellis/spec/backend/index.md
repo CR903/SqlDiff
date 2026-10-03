@@ -14,6 +14,7 @@ This directory covers the Electron main process and the process-neutral comparis
 | [DataGrip Export Contract](./datagrip-export.md) | SqlDiff → DataGrip three-file XML export signatures, UUID determinism, SSH collapse, validation, secrets, and tests | Current |
 | [Manifest Export Contract](./manifest-export.md) | Review Manifest schema, CoverageStatus mapping, DML redaction, JSON/Markdown serialization, tests | Current |
 | [Quality Guidelines](./quality-guidelines.md) | Type safety, security, tests, diff invariants, icons, packaging | Current |
+| [E2E Harness](./e2e-harness.md) | Playwright CDP harness for export paths: Electron launch, save-dialog env hook, XML/JSON assertions, no-secrets, determinism | Current |
 
 ## Pre-Development Checklist
 

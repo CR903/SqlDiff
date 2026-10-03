@@ -19,15 +19,15 @@ DBeaver 导出（`09-22-converters`）的 AC6 也是手工 CDP，`dbeaver-report
 
 ### 必须做
 
-- [ ] 引入 playwright（或 puppeteer）作为 devDependency
-- [ ] Electron 启动脚本：`npx playwright test` 前自动拉起 Electron + 暴露 CDP 端口
-- [ ] 原生保存对话框拦截：Playwright `electronBrowser` 的 `setSaveDialog` 或 `page.on('dialog')` 模拟
-- [ ] DBeaver 导出 E2E：点击导出 → 选择节点 → 确认导出 → 断言 `data-sources-sqldiff.json` 落盘内容（JSON 结构、字段、无秘密）
-- [ ] DataGrip 导出 E2E：点击导出 → 选择节点 → 确认导出 → 断言 `dataSources.xml` + `dataSources.local.xml` 落盘（well-formed、UUID 一致、driver-ref、jdbc-url、无秘密）
-- [ ] SSH 节点 E2E：含 SSH 的节点 → 断言 `sshConfigs.xml` 落盘（仅当有 SSH 节点时）、`ssh-properties` 引用、无 `keyPath`
-- [ ] 确定性 E2E：相同节点集合不同输入顺序 → 导出内容字节一致
-- [ ] `npm run e2e` 脚本，CI 可一键跑
-- [ ] 测试报告输出（HTML/JSON），便于归档
+- [x] 引入 playwright（或 puppeteer）作为 devDependency
+- [x] Electron 启动脚本：`npx playwright test` 前自动拉起 Electron + 暴露 CDP 端口
+- [x] 原生保存对话框拦截：Playwright `electronBrowser` 的 `setSaveDialog` 或 `page.on('dialog')` 模拟
+- [x] DBeaver 导出 E2E：点击导出 → 选择节点 → 确认导出 → 断言 `data-sources-sqldiff.json` 落盘内容（JSON 结构、字段、无秘密）
+- [x] DataGrip 导出 E2E：点击导出 → 选择节点 → 确认导出 → 断言 `dataSources.xml` + `dataSources.local.xml` 落盘（well-formed、UUID 一致、driver-ref、jdbc-url、无秘密）
+- [x] SSH 节点 E2E：含 SSH 的节点 → 断言 `sshConfigs.xml` 落盘（仅当有 SSH 节点时）、`ssh-properties` 引用、无 `keyPath`
+- [x] 确定性 E2E：相同节点集合不同输入顺序 → 导出内容字节一致
+- [x] `npm run e2e` 脚本，CI 可一键跑
+- [x] 测试报告输出（HTML/JSON），便于归档
 
 ### 明确不做
 
@@ -37,13 +37,13 @@ DBeaver 导出（`09-22-converters`）的 AC6 也是手工 CDP，`dbeaver-report
 
 ## 验收标准
 
-- [ ] `npm run e2e` 在 macOS 本地全绿（Linux CI 作为后续补验，不阻塞）
-- [ ] DBeaver E2E 覆盖：文件名、JSON 顶层结构、MySQL 直连字段、SSH 密码/私钥 handler、无秘密字段
-- [ ] DataGrip E2E 覆盖：XML well-formed、UUID 跨文件一致、driver-ref/jdbc-driver/jdbc-url、`ssh-config-id` 引用、无 `keyPath`/`passphrase`
-- [ ] 确定性 E2E：两次导出字节比对一致
-- [ ] 不引入新的运行时依赖（playwright 仅 devDependency）
-- [ ] 不修改 `src-main/converters/` 或 `src-renderer/` 的产品代码（harness 是测试基础设施，不是产品代码）
-- [ ] `git diff -- mysqldiff/` 为空
+- [x] `npm run e2e` 在 macOS 本地全绿（Linux CI 作为后续补验，不阻塞）— 11 测试 18s 通过
+- [x] DBeaver E2E 覆盖：文件名、JSON 顶层结构、MySQL 直连字段、SSH 密码/私钥 handler、无秘密字段
+- [x] DataGrip E2E 覆盖：XML well-formed、UUID 跨文件一致、driver-ref/jdbc-driver/jdbc-url、`ssh-config-id` 引用、无 `keyPath`/`passphrase`
+- [x] 确定性 E2E：两次导出字节比对一致
+- [x] 不引入新的运行时依赖（playwright 仅 devDependency）
+- [x] 不修改 `src-main/converters/` 或 `src-renderer/` 的产品代码（harness 是测试基础设施，不是产品代码）
+- [x] `git diff -- mysqldiff/` 为空
 
 ## 约束
 
