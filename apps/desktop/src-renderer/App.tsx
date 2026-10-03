@@ -5,7 +5,8 @@ import { sanitizeIpcError } from '../src-core/ipc-error';
 import { verbOf } from '../src-core/classify';
 import { visibleNodes } from './node-filter';
 import { buildManifest, manifestFileNames, manifestToMarkdown, serializeManifest } from '../src-core/manifest';
-import { preflightFileNames, preflightToDetailMarkdown, preflightToExecutiveMarkdown, serializePreflight } from '../src-core/preflight';
+import { preflightFileNames, preflightToDetailMarkdown, preflightToExecutiveMarkdown, serializePreflight, deriveDecision } from '../src-core/preflight';
+import type { PreflightReport } from '../src-core/preflight-types';
 import type { DataTableLists, DBeaverExportResult, DatagripExportResult, NodeCreateInput, SqlDiffApi } from '../src-main/preload';
 import {
   buildExportText,
@@ -603,7 +604,7 @@ function DiffTable({
   onRunPreflight?: () => void;
   canRunPreflight?: boolean;
   preflightRunning?: boolean;
-  lastPreflightResult?: { verdict: { level: string; blocking: number; warnings: number; unknowns: number } } | null;
+  lastPreflightResult?: PreflightReport | null;
   onExportPreflight?: () => void;
 }) {
   const isObjOn = (o: ObjectTypeWithData): boolean =>
@@ -677,11 +678,11 @@ function DiffTable({
       </div>
       {lastPreflightResult && (
         <div
-          className={`preflight-verdict preflight-verdict-${lastPreflightResult.verdict.level}`}
+          className={`preflight-verdict preflight-verdict-${deriveDecision(lastPreflightResult).level.toLowerCase()}`}
           role="status"
           aria-live="polite"
         >
-          <strong>{lastPreflightResult.verdict.level.toUpperCase()}</strong>
+          <strong>{deriveDecision(lastPreflightResult).level}</strong>
           <span>
             · {lastPreflightResult.verdict.blocking} blocking / {lastPreflightResult.verdict.warnings} warnings / {lastPreflightResult.verdict.unknowns} unknowns
           </span>
