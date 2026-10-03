@@ -335,3 +335,25 @@ will-download落盘/错误消毒/全部Tab/筛选去重多选；verbOf动词chip
 ### Status
 
 [OK] **Completed**
+
+
+## Session 15: Preflight E2E on real MySQL 8.x — dual version matrix
+<!-- trellis-session: v=2 fp=1fda681a42bef4b0 -->
+
+**Date**: 2026-10-03
+**Task**: Preflight E2E on real MySQL 8.x — dual version matrix
+**Branch**: `main`
+
+### Summary
+
+补齐 10-03-production-preflight Step 11 Docker e2e 缺口。放弃 Docker（Mac 系统版本不够），改用两台真实开发机：192.168.5.9 = MySQL 8.0.46（INSTANT ADD + INSTANT DROP）、192.168.5.15 = MySQL 8.0.26（INSTANT ADD + INPLACE DROP），正好覆盖 8.0.12 与 8.0.29 两个关键版本分叉。新增 e2e/fixtures/mysql-fixture.ts（8 表建库 + cleanup）、e2e/helpers/preflight-fixture.ts（11 DDL items + 断言工具）、e2e/specs/preflight-on-mysql-8.spec.ts（双机参数化 + READ_ONLY_TARGET 触发验证）；package.json 加 e2e:preflight:mysql 独立 script；e2e-harness.md spec 追加 preflight 章节。真实 e2e 跑通了三个产品 bug：(1) information_schema 大写列名 TABLE_NAME/table_name 未兼容→新增 cell() helper；(2) @@read_only 返回数字但 toStr() 拿到 null→改 toNumber；(3) information_schema.key_column_usage.referential_constraint 列在 MySQL 8.0.46 不存在→改 referenced_table_name。3/3 e2e 通过，558/558 单元测试全绿。MySQL 5.7 分支缺口写入 follow-up（preflight-e2e-mysql-5.7）。密码通过 .env.e2e 环境变量注入，已加 .gitignore，未进 commit。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e7e10b8` | feat(desktop): add preflight e2e on real MySQL 8.x |
+
+### Status
+
+[OK] **Completed**

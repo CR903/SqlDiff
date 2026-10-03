@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 14
-- **Last Active**: 2026-09-30
+- **Total Sessions**: 15
+- **Last Active**: 2026-10-03
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~337 | Active |
+| `journal-1.md` | ~359 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 15 | 2026-10-03 | Preflight E2E on real MySQL 8.x — dual version matrix | `e7e10b8` | `main` |
 | 14 | 2026-09-30 | 证据链父任务S4集成复核与归档 | `ff6d474` | `main` |
 | 13 | 2026-09-30 | compare/data应用服务集成测试 | `4234a94`, `db3799c`, `48c47cf` | `main` |
 | 12 | 2026-09-30 | Review Manifest v1 版本化无秘密导出 | `2f21605`, `d790df4`, `79d8b82` | `main` |
