@@ -10,9 +10,11 @@ import type {
   SshConfig,
 } from '../src-core/types';
 import type { DBeaverExportResult } from './converters/dbeaver';
+import type { DatagripExportResult } from './converters/datagrip';
 import type { SaveRequest, SaveResult } from './save-file';
 
 export type { DBeaverExportResult } from './converters/dbeaver';
+export type { DatagripExportResult } from './converters/datagrip';
 export type { SaveRequest, SaveResult } from './save-file';
 
 // M2：nodes CRUD / test / export / import / 老串导入 + history 接 vault。
@@ -77,6 +79,8 @@ export interface SqlDiffApi {
     export: () => Promise<ExportJSON>;
     /** 仅导出节点拓扑到 DBeaver data-sources JSON，不读取或返回秘密。 */
     exportDbeaver: (ids: string[]) => Promise<DBeaverExportResult>;
+    /** 仅导出节点拓扑到 DataGrip 三件套 XML（dataSources / local / sshConfigs），不读取或返回秘密。 */
+    exportDatagrip: (ids: string[]) => Promise<DatagripExportResult>;
     import: (doc: ExportJSON) => Promise<NodesImportResult>;
     /** 老 CLI 连接串一键解析导入（兼容 Tools.js:10-31）。 */
     importLegacy: (connStr: string, alias?: string) => Promise<NodeMeta>;
@@ -129,6 +133,8 @@ const api: SqlDiffApi = {
     export: () => ipcRenderer.invoke('nodes.export') as Promise<ExportJSON>,
     exportDbeaver: (ids: string[]) =>
       ipcRenderer.invoke('nodes.export-dbeaver', ids) as Promise<DBeaverExportResult>,
+    exportDatagrip: (ids: string[]) =>
+      ipcRenderer.invoke('nodes.export-datagrip', ids) as Promise<DatagripExportResult>,
     import: (doc: ExportJSON) => ipcRenderer.invoke('nodes.import', doc) as Promise<NodesImportResult>,
     importLegacy: (connStr: string, alias?: string) =>
       ipcRenderer.invoke('nodes.import-legacy', connStr, alias) as Promise<NodeMeta>,

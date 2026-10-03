@@ -33,6 +33,11 @@ import {
   resolveDBeaverNodes,
   type DBeaverExportResult,
 } from './converters/dbeaver';
+import {
+  createDatagripExportResult,
+  resolveDatagripNodes,
+  type DatagripExportResult,
+} from './converters/datagrip';
 
 // M2：vault（safeStorage + OS 钥匙串 / AES-GCM 回退）+ nodes.json / history.json 接线。
 // M3：mysql2/promise + ssh2 单跳隧道池；nodes.test 走 vault 取密钥后调 testConnection，
@@ -221,6 +226,12 @@ function registerNodesIpc(): void {
     // DBeaver 兼容导出只读取 NodeMeta；此路径不接触 Vault，也不会接收 SecretBundle。
     const selected = resolveDBeaverNodes(loadNodes(getContext().userDataDir), ids);
     return createDBeaverExportResult(selected);
+  });
+
+  ipcMain.handle('nodes.export-datagrip', (_event, ids: unknown): DatagripExportResult => {
+    // DataGrip 兼容导出只读取 NodeMeta；此路径不接触 Vault，也不会接收 SecretBundle。
+    const selected = resolveDatagripNodes(loadNodes(getContext().userDataDir), ids);
+    return createDatagripExportResult(selected);
   });
 
   ipcMain.handle('nodes.import', (_event, doc: ExportJSON): NodesImportResult => {

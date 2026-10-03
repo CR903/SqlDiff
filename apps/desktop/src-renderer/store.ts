@@ -36,6 +36,7 @@ import {
 import type {
   DataTableLists,
   DBeaverExportResult,
+  DatagripExportResult,
   NodeCreateInput,
   SqlDiffApi,
 } from '../src-main/preload';
@@ -250,6 +251,7 @@ interface DesktopState {
   testDraft: (node: NodeMeta, secret?: SecretBundle) => Promise<ConnTestResult>;
   exportDoc: () => Promise<ExportJSON>;
   exportDbeaver: (ids: string[]) => Promise<DBeaverExportResult>;
+  exportDatagrip: (ids: string[]) => Promise<DatagripExportResult>;
   importDoc: (doc: ExportJSON) => Promise<number>;
 }
 
@@ -526,6 +528,16 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
     if (!api) throw new Error('当前为预览模式（无主进程），请在 Electron 中运行以导出 DBeaver 配置');
     try {
       return await api.nodes.exportDbeaver(ids);
+    } catch (err) {
+      throw new Error(sanitizeIpcError(err));
+    }
+  },
+
+  exportDatagrip: async (ids) => {
+    const api = getIpc();
+    if (!api) throw new Error('当前为预览模式（无主进程），请在 Electron 中运行以导出 DataGrip 配置');
+    try {
+      return await api.nodes.exportDatagrip(ids);
     } catch (err) {
       throw new Error(sanitizeIpcError(err));
     }

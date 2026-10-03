@@ -5,7 +5,7 @@ import { sanitizeIpcError } from '../src-core/ipc-error';
 import { verbOf } from '../src-core/classify';
 import { visibleNodes } from './node-filter';
 import { buildManifest, manifestFileNames, manifestToMarkdown, serializeManifest } from '../src-core/manifest';
-import type { DataTableLists, DBeaverExportResult, NodeCreateInput, SqlDiffApi } from '../src-main/preload';
+import type { DataTableLists, DBeaverExportResult, DatagripExportResult, NodeCreateInput, SqlDiffApi } from '../src-main/preload';
 import {
   buildExportText,
   copyText,
@@ -228,6 +228,7 @@ function NodeLibrary({
   onTestNode,
   onExport,
   onExportDbeaver,
+  onExportDatagrip,
   onImportFile,
   onImportLegacy,
 }: {
@@ -249,6 +250,7 @@ function NodeLibrary({
   onTestNode: (id: string) => void;
   onExport: () => void;
   onExportDbeaver: () => void;
+  onExportDatagrip: () => void;
   onImportFile: (file: File) => void;
   onImportLegacy: () => void;
 }) {
@@ -277,6 +279,14 @@ function NodeLibrary({
           onClick={onExportDbeaver}
         >
           DBeaver
+        </button>
+        <button
+          className="link-btn"
+          title="选择节点并导出为 DataGrip 三件套 XML（不迁移秘密）"
+          disabled={nodesLoading || nodes.length === 0}
+          onClick={onExportDatagrip}
+        >
+          DataGrip
         </button>
         <button
           className="link-btn"
@@ -1122,19 +1132,27 @@ function SqlPreview({
 }
 
 // ---------------------------------------------------------------------------
-// DBeaver 兼容导出：节点选择 + 无秘密迁移提示
+// 节点导出弹窗：DBeaver JSON / DataGrip XML，共享选择流程与无秘密迁移提示
 // ---------------------------------------------------------------------------
 
-function DBeaverExportModal({
+type NodeExportTarget = 'dbeaver' | 'datagrip';
+type NodeExportOutcome =
+  | { kind: 'dbeaver'; result: DBeaverExportResult; paths: string[] | null }
+  | { kind: 'datagrip'; result: DatagripExportResult; paths: string[] | null };
+
+function ExportModal({
+  target,
   nodes,
   onClose,
   onExported,
 }: {
+  target: NodeExportTarget;
   nodes: NodeMeta[];
   onClose: () => void;
-  onExported: (result: DBeaverExportResult, filePath: string) => void;
+  onExported: (outcome: NodeExportOutcome) => void;
 }) {
   const exportDbeaver = useDesktopStore((s) => s.exportDbeaver);
+  const exportDatagrip = useDesktopStore((s) => s.exportDatagrip);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(nodes.map((node) => node.id)));
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1160,6 +1178,19 @@ function DBeaverExportModal({
     setSelectedIds(new Set());
   };
 
+  // 按目标切换的文案与文件提示；结构与按钮保持同一套。
+  const title = target === 'dbeaver' ? 'DBeaver' : 'DataGrip';
+  const bannerText =
+    target === 'dbeaver'
+      ? '不会迁移密码/私钥，导入后需重新输入。私钥认证节点还需在 DBeaver 中重新选择密钥。'
+      : '导出不会迁移密码、私钥或 passphrase；导入后需在 DataGrip 中重新输入。私钥认证节点还需在 DataGrip 中重新选择密钥。';
+  const sshKeyWarning =
+    target === 'dbeaver' ? '待补 SSH 私钥' : '待补 SSH 私钥（DataGrip 中重新选择）';
+  const fileHint =
+    target === 'dbeaver'
+      ? '文件：data-sources-sqldiff.json'
+      : '文件：dataSources.xml · dataSources.local.xml · sshConfigs.xml（按需）';
+
   const handleExport = async (): Promise<void> => {
     if (selectedCount === 0) {
       setError('请至少选择一个节点');
@@ -1168,15 +1199,42 @@ function DBeaverExportModal({
     setExporting(true);
     setError(null);
     try {
-      const result = await exportDbeaver([...selectedIds]);
-      const outcome = await saveTextFile(result.fileName, result.content, '导出 DBeaver 连接配置');
+      // 两个目标都统一走 saveTextFiles（bundle 通道）；
+      // DBeaver 单文件也套 bundle，保持与多文件同一路径（Stage 2 遗留项）。
+      let outcome: NodeExportOutcome;
+      let saveStatus: 'saved' | 'canceled' | 'fallback' = 'fallback';
+      if (target === 'dbeaver') {
+        const result = await exportDbeaver([...selectedIds]);
+        const save = await saveTextFiles(
+          [{ name: result.fileName, content: result.content }],
+          '导出 DBeaver 连接配置',
+        );
+        saveStatus = save.status;
+        outcome = {
+          kind: 'dbeaver',
+          result,
+          paths: save.status === 'saved' ? save.filePaths : null,
+        };
+      } else {
+        const result = await exportDatagrip([...selectedIds]);
+        const save = await saveTextFiles(
+          result.files.map((f) => ({ name: f.fileName, content: f.content })),
+          '导出 DataGrip 三件套 XML',
+        );
+        saveStatus = save.status;
+        outcome = {
+          kind: 'datagrip',
+          result,
+          paths: save.status === 'saved' ? save.filePaths : null,
+        };
+      }
       setExporting(false);
       // 取消保存 = 用户主动放弃，弹窗保留已选节点以便重试（与系统另存为的行为一致）。
-      if (outcome.status === 'canceled') {
+      if (saveStatus === 'canceled') {
         setError('已取消导出，未写入文件');
         return;
       }
-      onExported(result, outcome.status === 'saved' ? outcome.filePath : '');
+      onExported(outcome);
       onClose();
     } catch (e) {
       setExporting(false);
@@ -1191,11 +1249,9 @@ function DBeaverExportModal({
         if (e.target === e.currentTarget && !exporting) onClose();
       }}
     >
-      <div className="modal" role="dialog" aria-label="导出到 DBeaver">
-        <div className="modal-title">导出到 DBeaver</div>
-        <div className="dbeaver-export-warning">
-          不会迁移密码/私钥，导入后需重新输入。私钥认证节点还需在 DBeaver 中重新选择密钥。
-        </div>
+      <div className="modal" role="dialog" aria-label={`导出到 ${title}`}>
+        <div className="modal-title">导出到 {title}</div>
+        <div className="dbeaver-export-warning">{bannerText}</div>
         <div className="dbeaver-select-actions">
           <span>已选 {selectedCount} / {nodes.length}</span>
           <span className="dbeaver-select-buttons">
@@ -1221,7 +1277,7 @@ function DBeaverExportModal({
                 <span className="mono">{node.host}:{node.port} / {node.database}</span>
               </span>
               {node.ssh.enabled && node.ssh.authType === 'privateKey' && (
-                <span className="dbeaver-node-warning">待补 SSH 私钥</span>
+                <span className="dbeaver-node-warning">{sshKeyWarning}</span>
               )}
             </label>
           ))}
@@ -1229,7 +1285,7 @@ function DBeaverExportModal({
         </div>
         {error && <div className="form-err">{error}</div>}
         <div className="modal-actions">
-          <span className="form-hint">文件：data-sources-sqldiff.json</span>
+          <span className="form-hint">{fileHint}</span>
           <span className="modal-actions-right">
             <button className="btn btn-ghost" disabled={exporting} onClick={onClose}>
               取消
@@ -1817,9 +1873,9 @@ export default function App() {
   const exportDoc = useDesktopStore((s) => s.exportDoc);
   const importDoc = useDesktopStore((s) => s.importDoc);
 
-  // 节点管理本地状态：表单 Modal + DBeaver 选择 Modal + 老串导入 Modal + 单卡测试延迟。
+  // 节点管理本地状态：表单 Modal + 导出 Modal（DBeaver/DataGrip）+ 老串导入 Modal + 单卡测试延迟。
   const [nodeModal, setNodeModal] = useState<{ editingId: string | null } | null>(null);
-  const [dbeaverExportOpen, setDbeaverExportOpen] = useState(false);
+  const [exportTarget, setExportTarget] = useState<NodeExportTarget | null>(null);
   const [legacyImportOpen, setLegacyImportOpen] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [latencies, setLatencies] = useState<Record<string, number>>({});
@@ -2064,6 +2120,24 @@ export default function App() {
     setToast(filePath ? exportSavedMessage(prefix, filePath) : `${prefix}（当前为预览模式，文件由浏览器下载）`);
   };
 
+  const handleDatagripExported = (result: DatagripExportResult, filePaths: string[]): void => {
+    const warning = result.warnings.length > 0
+      ? `；${result.warnings.length} 条提示（含 SSH 私钥待补 / 拓扑折叠）：${result.warnings[0]}`
+      : '';
+    const prefix = `已导出 ${result.files.length} 个 XML（${result.exportedCount} 个节点，未迁移密码/私钥）${warning}`;
+    const dir = filePaths[0]?.replace(/[/\\][^/\\]*$/, '') ?? '';
+    setToast(dir ? exportSavedMessage(`${prefix}，目录`, dir) : `${prefix}（当前为预览模式，文件由浏览器下载）`);
+  };
+
+  // 统一出口：ExportModal 内部按 target 调 store 并保存，此处只做 toast 汇总。
+  const handleExported = (outcome: NodeExportOutcome): void => {
+    if (outcome.kind === 'dbeaver') {
+      handleDbeaverExported(outcome.result, outcome.paths?.[0] ?? '');
+    } else {
+      handleDatagripExported(outcome.result, outcome.paths ?? []);
+    }
+  };
+
   const handleImportFile = (file: File): void => {
     void file
       .text()
@@ -2171,7 +2245,8 @@ export default function App() {
           onRemoveNode={handleRemoveNode}
           onTestNode={handleTestNode}
           onExport={() => void handleExport()}
-          onExportDbeaver={() => setDbeaverExportOpen(true)}
+          onExportDbeaver={() => setExportTarget('dbeaver')}
+          onExportDatagrip={() => setExportTarget('datagrip')}
           onImportFile={handleImportFile}
           onImportLegacy={handleImportLegacy}
         />
@@ -2377,11 +2452,12 @@ export default function App() {
           </button>
         )}
       </footer>
-      {dbeaverExportOpen && (
-        <DBeaverExportModal
+      {exportTarget && (
+        <ExportModal
+          target={exportTarget}
           nodes={nodes}
-          onClose={() => setDbeaverExportOpen(false)}
-          onExported={handleDbeaverExported}
+          onClose={() => setExportTarget(null)}
+          onExported={handleExported}
         />
       )}
       {nodeModal && (
