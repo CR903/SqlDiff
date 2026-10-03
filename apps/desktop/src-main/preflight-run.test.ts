@@ -434,10 +434,15 @@ describe('runPreflight', () => {
     expect(() => JSON.parse(result.jsonContent)).not.toThrow();
     expect(result.jsonContent.endsWith('\n')).toBe(true);
 
-    // Markdown：头部 + Facts / Inferences / Unknowns / Issues / Verdict / 保密声明
-    const headings = ['## Facts', '## Inferences', '## Unknowns', '## Issues', '## Verdict', '## 保密声明'];
-    for (const h of headings) {
+    // Markdown：v2 起 markdownContent 是结论式（含决策 + 双视角 + 详情链接），
+    // detailMarkdownContent 是细节式（含旧 5 段结构：Facts / Inferences / Unknowns / Issues / Verdict / 保密声明）。
+    const execHeadings = ['## 决策 ·', '## 开发视角', '## 运维视角', '## 详情', '## 保密声明'];
+    for (const h of execHeadings) {
       expect(result.markdownContent).toContain(h);
+    }
+    const detailHeadings = ['## Facts', '## Inferences', '## Unknowns', '## Issues', '## Verdict', '## 保密声明'];
+    for (const h of detailHeadings) {
+      expect(result.detailMarkdownContent).toContain(h);
     }
   });
 

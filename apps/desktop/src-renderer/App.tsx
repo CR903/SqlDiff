@@ -5,7 +5,7 @@ import { sanitizeIpcError } from '../src-core/ipc-error';
 import { verbOf } from '../src-core/classify';
 import { visibleNodes } from './node-filter';
 import { buildManifest, manifestFileNames, manifestToMarkdown, serializeManifest } from '../src-core/manifest';
-import { preflightFileNames, preflightToMarkdown, serializePreflight } from '../src-core/preflight';
+import { preflightFileNames, preflightToDetailMarkdown, preflightToExecutiveMarkdown, serializePreflight } from '../src-core/preflight';
 import type { DataTableLists, DBeaverExportResult, DatagripExportResult, NodeCreateInput, SqlDiffApi } from '../src-main/preload';
 import {
   buildExportText,
@@ -2234,18 +2234,20 @@ export default function App() {
     try {
       const names = preflightFileNames(result.checkedAt);
       const jsonContent = serializePreflight(result);
-      const markdownContent = preflightToMarkdown(result);
+      const markdownContent = preflightToExecutiveMarkdown(result);
+      const detailMarkdownContent = preflightToDetailMarkdown(result);
       const outcome = await saveTextFiles(
         [
           { name: names.jsonFileName, content: jsonContent },
           { name: names.markdownFileName, content: markdownContent },
+          { name: names.detailMarkdownFileName, content: detailMarkdownContent },
         ],
-        '导出 Preflight 报告（JSON + Markdown）',
+        '导出 Preflight 报告（JSON + 结论 Markdown + 详细 Markdown）',
       );
       if (outcome.status === 'canceled') return;
       if (outcome.status === 'saved') {
         const dir = outcome.filePaths[0]?.replace(/[/\\][^/\\]*$/, '') ?? '';
-        setToast(exportSavedMessage('已导出 Preflight 报告：JSON + Markdown，目录', dir));
+        setToast(exportSavedMessage('已导出 Preflight 报告：JSON + 结论 + 详细 Markdown，目录', dir));
       } else {
         setToast('已导出 Preflight 报告（当前为预览模式，文件由浏览器下载）');
       }

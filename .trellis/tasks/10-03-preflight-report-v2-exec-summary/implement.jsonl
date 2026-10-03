@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/preflight.md", "reason": "Preflight v1 契约：PreflightReport 字段结构、9 条规则定义、verdict 语义、事实/推断/未知三段结构；本任务渲染层需对齐此契约，不改契约本身"}
+{"file": ".trellis/tasks/archive/2026-10/10-03-production-preflight/design.md", "reason": "Preflight v1 完整设计文档：规则引擎、DDL 分类、Online DDL 矩阵、Markdown 渲染原实现，本任务需理解 v1 现状再演进"}
+{"file": ".trellis/tasks/archive/2026-10/10-03-production-preflight/prd.md", "reason": "Preflight v1 需求与 AC：明确 v1 交付边界，本任务不重新定义契约，只做渲染层升级"}
+{"file": ".trellis/tasks/archive/2026-10/10-03-preflight-e2e-mysql-8/design.md", "reason": "真实 MySQL e2e 设计：验证报告产出结构，本任务阶段 6 复用其 harness"}
+{"file": ".trellis/spec/backend/e2e-harness.md", "reason": "E2E harness 契约：Playwright + Electron CDP 启动模式，本任务 e2e 验证需复用"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "目录结构与分层：src-core（纯函数）/src-main（IPC+IO）/src-renderer（UI）的边界，本任务改动需遵守"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "质量门：typecheck/lint/test 全绿、byte 稳定性、纯函数原则；本任务新增代码必须遵守"}

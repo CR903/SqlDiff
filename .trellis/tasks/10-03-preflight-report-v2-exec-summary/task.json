@@ -1,0 +1,32 @@
+{
+  "id": "preflight-report-v2-exec-summary",
+  "name": "preflight-report-v2-exec-summary",
+  "title": "Preflight Report v2：结论式渲染（双视角 + 分层文件）",
+  "description": "现有 preflight 报告 83% 篇幅是原始 facts，verdict 埋在最底部，用户反馈含金量不高、逐行看细节费时。改造 preflightToMarkdown 输出为两个文件：report.md 双视角结论（开发/运维各一栏）+ report-detail.md 折叠原始数据。渲染层先行，不动 schema v1，跑通 PoC 后再评估是否需要 schema v2",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "smarterlab",
+  "assignee": "smarterlab",
+  "createdAt": "2026-10-03",
+  "completedAt": null,
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "用户反馈：现有 preflight 报告 83% 篇幅是原始 facts，verdict 埋在最底部，含金量不高。核心决策：(1) 双视角分开（开发 vs 运维）；(2) 方案 C — 两个 md 文件（结论 + 细节）；(3) 渲染层先行，不动 schema v1，PoC 满意后再评估 schema v2。\n\n关键洞察（来自真实 8.0.46 dump 分析）：\n- 213 行报告，165 行是原始 facts（83%）\n- Verdict 只在 4 行（Level/blocking/warnings/unknowns 计数）\n- Issues 只有 1 条（LARGE_TABLE_INSTANT_ADD）被埋在 175 行 facts 下面\n- 决策语应该三态（GO/DEGRADED/BLOCK）而非四态（pass/warn/block/unknown）—— unknown 多数是 not-applicable 噪声\n\n范围：只改 apps/desktop/src-core/preflight.ts 渲染层 + src-renderer/App.tsx 保存逻辑。JSON schema、类型契约、规则引擎、采集器完全不动。\n\nFollow-up（不在本任务）：UI 徽标三态同步、schema v2 评估、SQL 生成联动、多次 preflight 历史 diff。",
+  "meta": {
+    "priority": "P2",
+    "relatedTo": [
+      "10-03-production-preflight",
+      "10-03-preflight-e2e-mysql-8"
+    ]
+  }
+}

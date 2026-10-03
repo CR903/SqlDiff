@@ -493,3 +493,137 @@ ReviewManifest 描述「差异是什么」，PreflightReport 描述「应用差�
 两者互补，不合并；用户交接时经常分开使用（PRD Q2 已定）。字段级脱敏原则一致（无秘密、无行值），但**脱敏器规则不共用**：ReviewManifest 的 `redactDmlSql` 只处理 DML 字符串，Preflight 不产生行值所以不需要红脱敏器。
 
 参见 [Manifest Export Contract](./manifest-export.md)。
+
+## 14. v2 结论式渲染（双视角 + 分层文件）
+
+> 本节是 v1 契约的**渲染层补充**，不修改 v1 类型契约、序列化格式或规则引擎。JSON schema 保持 byte 稳定；旧 `preflightToMarkdown` 保留不删，供旧单测与外部引用。
+
+### 14.1 三层产物
+
+| 产物 | 消费者 | 生成函数 |
+|---|---|---|
+| `sqldiff-preflight-{ts}.json` | 程序（CI、审计、归档）| `serializePreflight`（不变） |
+| `sqldiff-preflight-{ts}.md` | 人（首屏决策）| `preflightToExecutiveMarkdown`（新增） |
+| `sqldiff-preflight-{ts}-detail.md` | 人（追溯细节）| `preflightToDetailMarkdown`（新增） |
+
+三者**同源**（均由同一份 `PreflightReport` 派生）、**不重复**（结论文件不含 facts 表；细节文件不含决策语）、**可交叉引用**（结论底部有 `→ [完整原始数据](./xxx-detail.md)`；细节顶部有 `← [返回结论](./xxx.md)`）。
+
+### 14.2 决策语三态
+
+`deriveDecision(m: PreflightReport): { level: 'GO' | 'DEGRADED' | 'BLOCK'; message: string }`
+
+优先级：
+
+1. **BLOCK**：存在 `severity === 'block'` 的 issue。
+2. **DEGRADED**：无 block 但存在以下任一：
+   - 任一 inference.statement 含 `INPLACE/EXCLUSIVE`
+   - issue id 前缀为 `BIG_TABLE_REBUILD` / `LARGE_TABLE_REBUILD` / `REPLICA_LAG`
+3. **GO**：以上均不满足。
+
+`unknowns` 不影响决策（多数是 not-applicable 噪声）；`permission-denied` / `query-failed` 等非噪声 unknowns 在消息中附带「附 N 条待确认的未知项」，不升级为 BLOCK。
+
+Badge 图标：GO=🟢、DEGRADED=🟡、BLOCK=🔴。
+
+### 14.3 双视角信息映射
+
+| 视角 | 数据来源 | 派生逻辑 |
+|---|---|---|
+| 开发：DDL 分类成功率 | `inferences.length` vs `items.length` | 相除得百分比（整数四舍五入） |
+| 开发：DdlOp 分布 | `inferences[].statement` 正则解析 | `parseInferenceStatement` 提取 op 计数 |
+| 开发：Unparsed DDL | `unknowns.filter(reason === 'unparsed-ddl')` | 直接引用 |
+| 开发：表结构隐患 | `issues`（NO_PRIMARY_KEY / NO_UNIQUE_INDEX_AFTER_CHANGE / LARGE_TABLE_REBUILD） | 按表名聚合 |
+| 运维：DDL 风险分组 | `inferences[].statement` 含 algorithm/lock | 按 `INSTANT` / `INPLACE SHARED` / `INPLACE EXCLUSIVE` 三档 |
+| 运维：表风险热图 | `facts.filter(category === 'table')` + inferences 计数 | 按表名聚合 rows/size/pk/ddlCount，风险：无 PK→block、有 PK 且 rows>1M→warn、其他→safe |
+| 运维：环境状态 | `facts.filter(category in 'server','replication','permissions')` | 至少 4 项：MySQL 版本、read_only、gtid_mode、permissions.visibility |
+
+**关键实现**：`parseInferenceStatement` 用正则 `(\w+) on (\w+) → (\w+)/( \w+)` 解析自由文本，返回 `{ op, tableName, algorithm, lockMode, rebuilds }`。
+
+### 14.4 文件名约定
+
+`preflightFileNames(checkedAt)` 返回三个文件名：
+
+```ts
+{
+  jsonFileName: 'sqldiff-preflight-{ts}.json',
+  markdownFileName: 'sqldiff-preflight-{ts}.md',         // 结论（v2 起）
+  detailMarkdownFileName: 'sqldiff-preflight-{ts}-detail.md',  // 细节（新增）
+}
+```
+
+`{ts}` 为 ISO 8601，冒号与点号替换为连字符（与 v1 一致）。
+
+### 14.5 API 表面
+
+新增导出（`src-core/preflight.ts`）：
+
+- `preflightToExecutiveMarkdown(m: PreflightReport): string`
+- `preflightToDetailMarkdown(m: PreflightReport): string`
+- `parseInferenceStatement(s: string): InferenceStatement`
+- `deriveDecision(m: PreflightReport): Decision`
+- `groupDdlByRisk(inferences): { exclusive, inplaceShared, instant }`
+- `buildTableHeatmap(facts, inferences): TableRow[]`
+- `buildDeveloperView(m): DeveloperView`
+- `buildOpsView(m): OpsView`
+- 类型：`InferenceStatement`、`DecisionLevel`、`Decision`、`TableRow`、`DeveloperView`、`OpsView`
+
+修改导出（`src-main/preflight-run.ts`）：
+
+- `PreflightExportResult` 新增 `detailMarkdownFileName: string` 与 `detailMarkdownContent: string`（可选，保持向后兼容）
+
+保留不删（v1 兼容）：
+
+- `preflightToMarkdown(m: PreflightReport): string` —— 旧实现，主流程不再调用，仅供旧单测与外部引用
+
+### 14.6 数据流
+
+```
+runPreflight()
+  ↓ 收集 facts/inferences/unknowns
+  ↓ evaluateRules() → issues
+  ↓ deriveVerdict() → verdict
+  ↓ buildPreflightReport() → PreflightReport 对象
+  ↓
+  ├─ serializePreflight() → jsonContent                    [不变]
+  ├─ preflightToExecutiveMarkdown() → markdownContent      [v2 新增]
+  ├─ preflightToDetailMarkdown() → detailMarkdownContent   [v2 新增]
+  └─ preflightFileNames(checkedAt) → 3 个文件名           [v2 新增 detail]
+```
+
+UI 端（`App.tsx:handleExportPreflight`）通过 `saveTextFiles` 一次保存三个文件。
+
+### 14.7 渲染约束
+
+1. **纯函数**：所有新函数不引入 IO / 时间 / 随机（`checkedAt` 由上游注入）。
+2. **byte 稳定**：JSON 序列化不变；Markdown 输出对同一输入确定性一致。
+3. **优雅降级**：数据缺失时（如无 inferences）显示「无」而非抛错。
+4. **不重复渲染**：结论不含 facts 表；细节不含决策语。
+5. **交叉引用**：结论底部有相对路径链接到细节；细节顶部有反向链接。
+6. **单元格转义**：沿用 `mdCell` / `mdValue` 处理 `|` 与 null/undefined。
+7. **数字格式化**：`fmtRows`（>1M→M、>1K→K）+ `fmtSize`（GB/MB/KB），两处共用。
+
+### 14.8 测试
+
+新增 `apps/desktop/src-core/preflight-exec.test.ts`（≥10 项），覆盖：
+
+- `parseInferenceStatement` 三种典型 statement（INSTANT/SHARED、INPLACE/EXCLUSIVE、INPLACE/SHARED (rebuild)）
+- `deriveDecision` 三态（BLOCK / DEGRADED / GO）
+- `groupDdlByRisk` 三档分组
+- `buildTableHeatmap` 无 PK 表标 block、大表标 warn、其他 safe
+- `preflightToExecutiveMarkdown` 输出含决策语 + 双视角 + 交叉引用
+- `preflightToDetailMarkdown` 保留完整 5 段结构
+- 空数据不抛错
+
+原有 `preflight.test.ts` 中针对旧 `preflightToMarkdown` 的测试全部保留（旧函数不删）。
+
+### 14.9 回滚
+
+- JSON 完全不动：schemaVersion=1、字段顺序、序列化格式 byte 稳定。
+- 旧 `preflightToMarkdown` 保留：任何还在用的地方都能继续引用。
+- 回滚路径：若问题严重，仅需 revert `preflight-run.ts` 的 `exportBundle` 装配（3 行）+ `App.tsx` 的 `handleExportPreflight`（10 行），把主流程退回用旧函数；其他新代码留在但不调用。
+
+### 14.10 Follow-up（不在本任务）
+
+- UI 徽标三态同步：`verdict.level` 从四态（pass/warn/block/unknown）升级为三态（GO/DEGRADED/BLOCK）—— 需改 UI 组件，涉及独立任务。
+- Schema v2 评估：若结论层字段被 UI / 程序复用，再考虑引入 `summary` 字段进 `PreflightReport`。
+- SQL 生成联动：`ALGORITHM=INSTANT` 等加速建议目前只在 recommendation 文本里，未来可自动追加到生成的 DDL 语句中。
+- 历史对比：多次 preflight 结果 diff（如「本次比上次新增 2 条 warn」）。

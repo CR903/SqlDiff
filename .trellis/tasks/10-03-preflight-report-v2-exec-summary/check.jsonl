@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/preflight.md", "reason": "检查 v1 契约未被违反：schemaVersion=1、字段顺序、9 条规则 id、verdict 语义全部保留；JSON 序列化 byte 稳定不变"}
+{"file": ".trellis/tasks/archive/2026-10/10-03-production-preflight/design.md", "reason": "检查结论式渲染是否与 v1 设计原则一致（三段结构、9 条规则、DDL 分类）；结论文件不得引入新数据源，只重组已有信息"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "检查新增代码质量：纯函数、byte 稳定、无 IO/时间/随机、mdCell 转义、单测覆盖"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "检查目录分层：新增渲染函数在 src-core（纯函数），App.tsx 改动在 src-renderer，preflight-run.ts 装配改动在 src-main，不越界"}
+{"file": ".trellis/spec/backend/e2e-harness.md", "reason": "检查 e2e 验证：8.0.46/8.0.26 双机跑通、dump 报告对比、不新增依赖"}

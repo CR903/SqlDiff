@@ -21,7 +21,8 @@ import { classifyDdl, lookupOnlineDdl } from '../src-core/preflight-ddl';
 import {
   buildPreflightReport,
   preflightFileNames,
-  preflightToMarkdown,
+  preflightToDetailMarkdown,
+  preflightToExecutiveMarkdown,
   serializePreflight,
 } from '../src-core/preflight';
 import type {
@@ -61,12 +62,18 @@ export interface PreflightRequest {
   thresholds?: { bigTableRows?: number; replicaLagSeconds?: number };
 }
 
-/** runPreflight 返回值：两个文件名 + 序列化内容 + verdict 等级。 */
+/** runPreflight 返回值：三个文件名 + 序列化内容 + verdict 等级。 */
 export interface PreflightExportResult {
   jsonFileName: string;
+  /** 结论式 markdown（report.md）文件名。 */
   markdownFileName: string;
+  /** 细节式 markdown（report-detail.md）文件名。 */
+  detailMarkdownFileName: string;
   jsonContent: string;
+  /** 结论式 markdown 内容（v2）。 */
   markdownContent: string;
+  /** 细节式 markdown 内容（v2）。 */
+  detailMarkdownContent: string;
   verdictLevel: PreflightReport['verdict']['level'];
 }
 
@@ -179,11 +186,14 @@ function buildNoPoolReport(params: {
 
 /** 序列化 + 文件名一次做完，返回值同时满足主流程和"无池"降级路径。 */
 function exportBundle(report: PreflightReport): PreflightExportResult {
+  const names = preflightFileNames(report.checkedAt);
   return {
-    jsonFileName: preflightFileNames(report.checkedAt).jsonFileName,
-    markdownFileName: preflightFileNames(report.checkedAt).markdownFileName,
+    jsonFileName: names.jsonFileName,
+    markdownFileName: names.markdownFileName,
+    detailMarkdownFileName: names.detailMarkdownFileName,
     jsonContent: serializePreflight(report),
-    markdownContent: preflightToMarkdown(report),
+    markdownContent: preflightToExecutiveMarkdown(report),
+    detailMarkdownContent: preflightToDetailMarkdown(report),
     verdictLevel: report.verdict.level,
   };
 }
