@@ -2,5 +2,8 @@ node_modules/
 dist-main/
 dist-renderer/
 release/
+e2e/test-results/
+e2e/playwright-report/
+playwright-report/
 *.log
 .DS_Store

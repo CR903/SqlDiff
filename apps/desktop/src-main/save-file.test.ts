@@ -9,6 +9,7 @@ import {
   buildSaveFilters,
   parseSaveRequest,
   saveFiles,
+  saveFilesToDir,
   type FileWriterLike,
   type SaveDialogLike,
   type SaveRequest,
@@ -254,5 +255,152 @@ describe('saveFiles：真实磁盘往返', () => {
         { kind: 'file', defaultName: 'a.sql', content: 'x' },
       ),
     ).rejects.toThrow('export: 写入 a.sql 失败');
+  });
+});
+
+// saveFilesToDir：E2E 测试模式，跳过对话框直接写入指定目录。
+describe('saveFilesToDir：E2E 测试模式', () => {
+  const tmpDirs: string[] = [];
+
+  function makeTmp(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sqldiff-save-e2e-'));
+    tmpDirs.push(dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    while (tmpDirs.length > 0) {
+      const dir = tmpDirs.pop();
+      if (dir) fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('单文件：写入 dir/defaultName，返回正确路径', async () => {
+    const dir = makeTmp();
+    const r = await saveFilesToDir(
+      { kind: 'file', defaultName: 'out.json', content: '{"a":1}' },
+      dir,
+    );
+    expect(r).toEqual({ status: 'saved', filePaths: [path.join(dir, 'out.json')] });
+    expect(fs.readFileSync(path.join(dir, 'out.json'), 'utf8')).toBe('{"a":1}');
+  });
+
+  it('批量：写入 dir/file1, dir/file2，路径按请求顺序', async () => {
+    const dir = makeTmp();
+    const r = await saveFilesToDir(
+      {
+        kind: 'bundle',
+        files: [
+          { name: 'a.xml', content: '<?xml version="1.0"?>' },
+          { name: 'b.xml', content: '<project/>' },
+          { name: 'c.xml', content: '<ssh/>' },
+        ],
+      },
+      dir,
+    );
+    expect(r).toEqual({
+      status: 'saved',
+      filePaths: [
+        path.join(dir, 'a.xml'),
+        path.join(dir, 'b.xml'),
+        path.join(dir, 'c.xml'),
+      ],
+    });
+    expect(fs.readFileSync(path.join(dir, 'a.xml'), 'utf8')).toBe('<?xml version="1.0"?>');
+    expect(fs.readFileSync(path.join(dir, 'b.xml'), 'utf8')).toBe('<project/>');
+    expect(fs.readFileSync(path.join(dir, 'c.xml'), 'utf8')).toBe('<ssh/>');
+  });
+
+  it('目录不存在时自动创建', async () => {
+    const base = makeTmp();
+    const nested = path.join(base, 'sub', 'dir');
+    const r = await saveFilesToDir(
+      { kind: 'file', defaultName: 'x.sql', content: 'SELECT 1;' },
+      nested,
+    );
+    expect(r.status).toBe('saved');
+    if (r.status === 'saved') {
+      expect(fs.readFileSync(r.filePaths[0], 'utf8')).toBe('SELECT 1;');
+    }
+  });
+
+  it('不弹对话框、不返回 canceled', async () => {
+    const dir = makeTmp();
+    const r = await saveFilesToDir(
+      { kind: 'file', defaultName: 'a.sql', content: 'x' },
+      dir,
+    );
+    expect(r.status).toBe('saved');
+    expect(r.status).not.toBe('canceled');
+  });
+});
+
+// saveFiles env 分支：SQLDIFF_E2E_SAVE_DIR 存在时跳过对话框。
+describe('saveFiles：E2E env 分支', () => {
+  const tmpDirs: string[] = [];
+
+  function makeTmp(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sqldiff-env-branch-'));
+    tmpDirs.push(dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    while (tmpDirs.length > 0) {
+      const dir = tmpDirs.pop();
+      if (dir) fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('SQLDIFF_E2E_SAVE_DIR 存在：跳过对话框，直接写入目录', async () => {
+    const dir = makeTmp();
+    const savedDir = process.env.SQLDIFF_E2E_SAVE_DIR;
+    process.env.SQLDIFF_E2E_SAVE_DIR = dir;
+    try {
+      const r = await saveFiles(
+        { dialog: fakeDialog(), writer: fakeWriter(), getDefaultDir: () => '/should/not/be/used' },
+        { kind: 'file', defaultName: 'e2e.json', content: '{"ok":true}' },
+      );
+      expect(r).toEqual({ status: 'saved', filePaths: [path.join(dir, 'e2e.json')] });
+      expect(fs.readFileSync(path.join(dir, 'e2e.json'), 'utf8')).toBe('{"ok":true}');
+    } finally {
+      if (savedDir !== undefined) process.env.SQLDIFF_E2E_SAVE_DIR = savedDir;
+      else delete process.env.SQLDIFF_E2E_SAVE_DIR;
+    }
+  });
+
+  it('SQLDIFF_E2E_SAVE_DIR 不存在：走正常对话框路径', async () => {
+    const savedDir = process.env.SQLDIFF_E2E_SAVE_DIR;
+    delete process.env.SQLDIFF_E2E_SAVE_DIR;
+    try {
+      const dialog = fakeDialog({ save: { canceled: false, filePath: '/tmp/normal.sql' } });
+      const writer = fakeWriter();
+      const r = await saveFiles(
+        { dialog, writer, getDefaultDir: () => '/d' },
+        { kind: 'file', defaultName: 'normal.sql', content: 'x' },
+      );
+      expect(r).toEqual({ status: 'saved', filePaths: ['/tmp/normal.sql'] });
+      expect(dialog.showSaveDialog).toHaveBeenCalled();
+    } finally {
+      if (savedDir !== undefined) process.env.SQLDIFF_E2E_SAVE_DIR = savedDir;
+    }
+  });
+
+  it('SQLDIFF_E2E_SAVE_DIR 为空串或纯空白：视为未设置，走正常对话框路径', async () => {
+    const savedDir = process.env.SQLDIFF_E2E_SAVE_DIR;
+    process.env.SQLDIFF_E2E_SAVE_DIR = '   ';
+    try {
+      const dialog = fakeDialog({ save: { canceled: false, filePath: '/tmp/normal.sql' } });
+      const writer = fakeWriter();
+      const r = await saveFiles(
+        { dialog, writer, getDefaultDir: () => '/d' },
+        { kind: 'file', defaultName: 'normal.sql', content: 'x' },
+      );
+      expect(r).toEqual({ status: 'saved', filePaths: ['/tmp/normal.sql'] });
+      expect(dialog.showSaveDialog).toHaveBeenCalled();
+    } finally {
+      if (savedDir !== undefined) process.env.SQLDIFF_E2E_SAVE_DIR = savedDir;
+      else delete process.env.SQLDIFF_E2E_SAVE_DIR;
+    }
   });
 });

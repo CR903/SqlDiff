@@ -6,6 +6,7 @@
 // 这里是唯一落盘通道：路径由用户决定，成功/取消都是可回传的真实结果。
 
 import path from 'node:path';
+import fs from 'node:fs';
 
 /** 一次导出里的单个文件（name 只取 basename，不接受目录分隔符）。 */
 export interface SaveFileEntry {
@@ -20,6 +21,16 @@ export type SaveRequest =
 
 /** 导出结果：saved 携带真实落盘绝对路径（按请求顺序）；canceled 为用户在对话框中取消。 */
 export type SaveResult = { status: 'saved'; filePaths: string[] } | { status: 'canceled' };
+
+/**
+ * 检查 E2E 测试模式（仅 SQLDIFF_E2E_SAVE_DIR 环境变量）。
+ * Playwright harness 在启动 Electron 时通过 `env` 注入此变量。
+ * 不检查任何标志文件：固定路径的标志文件会被本地其他用户伪造（symlink 攻击），
+ * 因此仅允许 env 注入。
+ */
+function getE2eSaveDir(): string | null {
+  return process.env.SQLDIFF_E2E_SAVE_DIR?.trim() || null;
+}
 
 export interface SaveDialogFilters {
   name: string;
@@ -134,12 +145,41 @@ async function writeAll(
 }
 
 /**
+ * E2E 测试模式：跳过系统对话框，直接写入指定目录。
+ * 由 SQLDIFF_E2E_SAVE_DIR 环境变量控制；不影响生产路径。
+ * 目录不存在时自动创建（mkdir -p 语义）。
+ */
+export async function saveFilesToDir(request: SaveRequest, dir: string): Promise<SaveResult> {
+  const writer: FileWriterLike = {
+    writeFile: async (filePath, data, encoding) => {
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.promises.writeFile(filePath, data, encoding);
+    },
+  };
+
+  if (request.kind === 'bundle') {
+    const filePaths = await writeAll(writer, request.files.map((f) => ({ filePath: path.join(dir, f.name), content: f.content })));
+    return { status: 'saved', filePaths };
+  }
+
+  const filePath = path.join(dir, request.defaultName);
+  const filePaths = await writeAll(writer, [{ filePath, content: request.content }]);
+  return { status: 'saved', filePaths };
+}
+
+/**
  * 落盘主流程：
  * - 单文件 → showSaveDialog（默认名 + 类型过滤器），用户可改目录与文件名；
  * - 多文件 → showOpenDialog 选一个目录，一次写完，避免连弹 N 次对话框。
  * 取消一律返回 canceled（不是错误，也不写盘）。
  */
 export async function saveFiles(deps: SaveDeps, request: SaveRequest): Promise<SaveResult> {
+  // 测试模式：跳过系统对话框，直接写入指定目录（由 Playwright harness 注入 env）。
+  const e2eSaveDir = getE2eSaveDir();
+  if (e2eSaveDir) {
+    return saveFilesToDir(request, e2eSaveDir);
+  }
+
   if (request.kind === 'bundle') {
     const picked = await deps.dialog.showOpenDialog({
       title: request.title ?? '选择导出目录',
