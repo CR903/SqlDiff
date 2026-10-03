@@ -668,7 +668,7 @@ function DiffTable({
             title={
               canRunPreflight
                 ? '对已 diff 出的表级 DDL 跑只读 Preflight 检查（版本 / 表规模 / 复制延迟 / 权限盲区 / Online DDL 算法）'
-                : '仅真实比较（非 demo、非比对中）可运行 Preflight'
+                : '仅真实比较（非 demo、非比对中）且至少含 1 条表级 DDL 项可运行 Preflight'
             }
           >
             {preflightRunning ? 'Preflight 运行中…' : '运行 Preflight'}
@@ -2209,9 +2209,13 @@ export default function App() {
   // 下载内容层面对 data 项脱敏；导出物不含秘密与未经裁定的行值。
   const canExportManifest = resultSource === 'real' && lastCompareRequest != null && !comparing;
 
-  // Preflight 门控：需真实比较可用 + 非运行中 + 无表格 DDL 项时禁用。
+  // Preflight 门控：需真实比较可用 + 非运行中 + 至少 1 个表级 DDL 项。
   const canRunPreflight =
-    resultSource === 'real' && lastCompareRequest != null && !comparing && !preflightRunning;
+    resultSource === 'real' &&
+    lastCompareRequest != null &&
+    !comparing &&
+    !preflightRunning &&
+    items.some((i) => i.objectType === 'table');
 
   const handleRunPreflight = async (): Promise<void> => {
     if (!canRunPreflight) {

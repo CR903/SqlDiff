@@ -641,6 +641,7 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
           visibility: result.visibility ?? null,
           resultError: null,
           lastPreflightResult: null,
+          preflightRunning: false,
           lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · ${scopes.join('/')}${includeData ? '/data' : ''} · ${new Date().toLocaleTimeString()} · ${result.stats.ALL} 条差异${dataNote}`,
           toast: needConfirm
             ? '对比完成：部分大表超阈待确认，请二次确认后重跑'
@@ -687,6 +688,7 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
           visibility: null,
           resultError: null,
           lastPreflightResult: null,
+          preflightRunning: false,
           lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · 本地示例数据`,
           toast: `已用本地示例数据演示（${demo.stats.ALL} 条，数据对比需 Electron 后端）`,
         });
@@ -706,6 +708,7 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
         visibility: null,
         resultError: clean,
         lastPreflightResult: null,
+        preflightRunning: false,
         lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · 对比失败`,
         toast: `后端对比失败：${clean}`,
       });
