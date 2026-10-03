@@ -1,0 +1,12 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "只读 SQL 清单硬边界；Preflight 新增的 SELECT/SHOW/@@/information_schema 查询必须落到清单；null 跳过不变量、SHOW GRANTS 只读声明、参数化与 escapeIdent 规则"}
+{"file": ".trellis/spec/backend/manifest-export.md", "reason": "ReviewManifest 契约与 PreflightReport 的边界（互补不合并）；版本化、无秘密、脱敏器、CoverageStatus 复用模式"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Preflight 采集器的部分失败、错误分类（permission-denied / query-failed / not-applicable）、AbortSignal 语义；与 metadata.ts classifyCoverageReason 的错误码分类保持一致"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "preflight 相关文件归属（src-core 纯函数 / src-main 采集器与编排）；不违反 renderer 无 node:* 导入的边界"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "PreflightReport / PreflightFact / PreflightInference / PreflightUnknown / PreflightIssue 共享类型归属；字段可选性与联合类型收窄规则"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "lastPreflightResult 归属；preflight 展开态不进 Zustand；store 层新增 lastCompareRequest 后与 preflight 的联动"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Preflight UI 入口的 CDP 验证要求；verdict 徽标 a11y；导出按钮的下载断言"}
+{"file": ".trellis/tasks/archive/2026-09/09-29-review-manifest/prd.md", "reason": "ReviewManifest 决策（版本化、无秘密、脱敏、CoverageStatus 枚举）与 PreflightReport 的边界；preflight 不合并到 manifest 的依据"}
+{"file": ".trellis/tasks/archive/2026-09/09-29-review-evidence-chain/prd.md", "reason": "父任务需求：只读边界不扩大、秘密不外流、行值默认脱敏、语义可判定；preflight 必须继承这些约束"}
+{"file": ".trellis/tasks/archive/2026-09/09-29-grant-blindness-false-drop/prd.md", "reason": "assessVisibility 与 Visibility 判定已实现；Preflight 的 PERMISSION_INCOMPLETE 规则复用其输出"}
+{"file": ".trellis/tasks/archive/2026-09/09-24-product-expansion-roadmap/roadmap.md", "reason": "§4 Phase 2 方向 C 原文：只读检查 MySQL 版本、表规模、主键/索引重建、空间、复制延迟、权限盲区；输出事实/推断/未知"}
+{"file": ".trellis/tasks/archive/2026-09/09-24-product-expansion-roadmap/research/candidate-directions-and-validation.md", "reason": "§4 方向 C 最小切片：MySQL 版本与 sql_mode、表行数与空间、DDL 对应的 online algorithm/lock 候选与版本限制、主键/索引/外键/触发器/复制状态、高危规则、人工确认项与证据时间"}

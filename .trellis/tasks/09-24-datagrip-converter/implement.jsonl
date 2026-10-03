@@ -1,3 +1,16 @@
-{"file": ".trellis/spec/backend/directory-structure.md", "reason": "主进程、converters、IPC 和共享核心边界"}
-{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "只读、安全、测试和 Electron 约束"}
-{"file": ".trellis/tasks/09-22-converters/research/datagrip-dataspell-connection-import.md", "reason": "DataGrip XML、导入机制和 SSH 未知项研究"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "主进程 converters 目录与 preload/main 边界"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "只读、安全、测试和 Electron 约束；XML 输出的无秘密边界"}
+{"file": ".trellis/spec/backend/dbeaver-export.md", "reason": "复用 DBeaver 导出契约的模块形状、错误前缀、warning 边界、测试口径"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "IPC 错误前缀 nodes:/datagrip:、sanitizeIpcError、部分失败策略"}
+{"file": ".trellis/spec/backend/manifest-export.md", "reason": "saveTextFiles bundle 模式与 file.save 可信通道对齐"}
+{"file": ".trellis/tasks/archive/2026-09/09-22-converters/research/datagrip-dataspell-connection-import.md", "reason": "XML 结构、SSH 组件名与 authType 权威来源（Addendum 2026-10-03）"}
+{"file": ".trellis/tasks/archive/2026-09/09-22-converters/design.md", "reason": "DBeaver 导出设计模式，DataGrip 复用同一纯函数 + resolve + create 形状"}
+{"file": ".trellis/tasks/archive/2026-09/09-22-converters/prd.md", "reason": "AC6 结构性验收口径，与本任务 AC6 保持一致"}
+{"file": "apps/desktop/src-main/converters/dbeaver.ts", "reason": "参考实现：assertExportNode / resolve*Nodes / build*Document / create*ExportResult"}
+{"file": "apps/desktop/src-main/converters/dbeaver.test.ts", "reason": "参考测试形状：sentinel 污染对象、warning 行为、确定性"}
+{"file": "apps/desktop/src-main/converters/index.ts", "reason": "反向导入 NodeConverter 接口，本任务不复用"}
+{"file": "apps/desktop/src-main/preload.ts", "reason": "SqlDiffApi 桥；新增 nodes.exportDatagrip"}
+{"file": "apps/desktop/src-main/main.ts", "reason": "注册 nodes.export-datagrip handler，保持薄"}
+{"file": "apps/desktop/src-renderer/sql.ts", "reason": "saveTextFile/saveTextFiles 通道"}
+{"file": "apps/desktop/src-renderer/store.ts", "reason": "exportDatagrip action"}
+{"file": "apps/desktop/src-renderer/App.tsx", "reason": "DBeaverExportModal 复用为多目标"}

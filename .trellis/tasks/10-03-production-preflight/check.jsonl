@@ -1,0 +1,10 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "检查 Preflight 新增 SQL 是否落在只读清单内（SELECT/SHOW/@@/information_schema）；无 SET/INSERT/UPDATE/DELETE/FOR UPDATE"}
+{"file": ".trellis/spec/backend/manifest-export.md", "reason": "检查 PreflightReport 与 ReviewManifest 的边界清晰、不合并；PreflightReport 也含 schemaVersion、无秘密、可 JSON/Markdown 导出"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "检查 Preflight 采集器的错误分类（permission-denied / query-failed / not-applicable / unsupported-version / unparsed-ddl）与 metadata.ts 错误码常量一致；无静默失败"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "检查 Preflight 无写库路径、无 SQL 执行入口、mysqldiff/ 未改动、无 pt-online-schema-change/gh-ost/cut-over 字符串进入代码库"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "检查 Preflight UI 入口 CDP 验证、verdict 徽标 a11y、导出下载断言；无 demo 结果时 Preflight 按钮禁用"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "检查 Preflight* 共享类型的归属、字段可选性、联合类型收窄；PreflightReport 与 ReviewManifest 无字段冲突"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "检查 lastPreflightResult 归属正确（store 内存，不落盘）；preflight 展开态不进 Zustand"}
+{"file": ".trellis/tasks/archive/2026-09/09-29-review-manifest/prd.md", "reason": "检查 PreflightReport 未合并到 ReviewManifest；两者 schema 独立版本；导出物无秘密、无行值"}
+{"file": ".trellis/tasks/archive/2026-09/09-29-grant-blindness-false-drop/prd.md", "reason": "检查 Preflight 的 PERMISSION_INCOMPLETE 规则与 assessVisibility 输出语义一致；Visibility=full 与 reliable=true 的判定方向"}
+{"file": ".trellis/tasks/archive/2026-09/09-24-product-expansion-roadmap/roadmap.md", "reason": "检查 Preflight 覆盖路线图 §4 Phase 2 方向 C 的六个问题（版本、表规模、DDL 重建、空间、复制、权限）；输出事实/推断/未知"}

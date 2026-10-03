@@ -1,3 +1,8 @@
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "UI、下载和可信 CDP 验证"}
-{"file": ".trellis/spec/backend/error-handling.md", "reason": "IPC 错误、校验和部分失败"}
-{"file": ".trellis/tasks/09-22-converters/research/datagrip-dataspell-connection-import.md", "reason": "核验 XML fixture、SSH 标签和无秘密边界"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "UI、下载、可信 CDP 验证、非敏感证据留存"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "选择状态为组件本地、导出动作为 store action"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "SqlDiffApi 类型桥与 sanitizeIpcError 契约"}
+{"file": ".trellis/spec/backend/dbeaver-export.md", "reason": "对照 DBeaver 契约核验 Datagrip 是否满足相同 no-secret / determinism 边界"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "nodes:/datagrip: 域前缀与 sanitizeIpcError 行为"}
+{"file": ".trellis/tasks/archive/2026-09/09-22-converters/research/datagrip-dataspell-connection-import.md", "reason": "核验 XML 组件名、SSH 标签、authType 取值与 UUID 引用完整性"}
+{"file": "apps/desktop/src-main/converters/datagrip.test.ts", "reason": "确认 XML well-formed、UUID 一致、无秘密字段、determinism"}
+{"file": "apps/desktop/src-renderer/sql.ts", "reason": "saveTextFiles 通过 file.save kind:'bundle' 落盘 2-3 文件"}

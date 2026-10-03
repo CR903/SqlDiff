@@ -122,9 +122,92 @@ Required vs optional: required = `name`, `uuid` (v4, stable across both files), 
 - `.trellis/spec/backend/*` — follow for converter errors/logging when `fromDataGrip` is implemented
 - `.trellis/tasks/09-22-converters/prd.md` — task goal: export nodes as DBeaver/DataGrip-importable formats
 
+## Addendum 2026-10-03 — SSH XML structure now verified
+
+Follow-up research (triggered by `09-24-datagrip-converter`) resolved the previously "not found" SSH structure by reading the DBeaver DataGrip import plugin source (`org.jkiss.dbeaver.ui.config.migration.datagrip`, Apache-2.0), the `nyetdb` Rust crate (MIT), and real `.idea/sshConfigs.xml` samples in the wild. Prior claims that SSH tags were unknown can be discarded.
+
+### File layout (authoritative)
+
+DataGrip splits SSH connection info across three files, keyed by a shared UUID / config-id:
+
+| File | Scope | Component | Role |
+|---|---|---|---|
+| `.idea/dataSources.xml` | project | `DataSourceManagerImpl` | data source identity: `uuid`, `driver-ref`, `jdbc-driver`, `jdbc-url`, `working-dir` |
+| `.idea/dataSources.local.xml` | project | `dataSourceStorageLocal` | per-user layer: `user-name`, `secret-storage`, `schema-mapping`, and `ssh-properties` (a **reference**, not the SSH connection details) |
+| `.idea/sshConfigs.xml` **or** `<config>/options/sshConfigs.xml` | project OR global | `SshConfigs` | actual SSH connection definition, keyed by `<sshConfig id=...>`; selected by `ssh-properties/ssh-config-id` |
+
+Global SSH config scope is the default; "visible only for this project" copies the `<sshConfig>` into the project's `.idea/sshConfigs.xml`. Both files use the identical root shape. Source: DBeaver `DataGripConfigXMLConstant.SSH_CONFIG_XML_FILENAME` + `DataGripDataSourceConfigXmlServiceImpl.readIdeaSshConfig` which scans both `<idea>/.idea/sshConfigs.xml` (via `getAllExistingPathsToFileFromFolder`) and `<config>/options/sshConfigs.xml`.
+
+### Verified `<sshConfig>` shape (from real `.idea/sshConfigs.xml` on GitHub)
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="SshConfigs">
+    <configs>
+      <sshConfig authType="PASSWORD" host="helios.se.ifmo.ru"
+                 id="9182db7a-9cae-4c44-9ad6-6ae3ae74cbcf"
+                 port="2222" nameFormat="DESCRIPTIVE"
+                 username="s285896" />
+    </configs>
+  </component>
+</project>
+```
+
+`nyetdb`'s parse fixture (`src/datagrip.rs`):
+
+```xml
+<application>
+  <component name="SshConfigs">
+    <configs>
+      <sshConfig authType="OPEN_SSH" host="bastion.corp" id="ssh1" port="22" username="deploy" />
+    </configs>
+  </component>
+</application>
+```
+
+Attribute set:
+
+- `id` (required) — UUID, referenced by `ssh-config-id` in `dataSources.local.xml`
+- `host` (required) — jump-host hostname
+- `port` (numeric, string in XML) — SSH port, default 22
+- `username` — remote login user
+- `authType` — one of `PASSWORD`, `PRIVATE_KEY`, `OPEN_SSH` (DBeaver plugin: `"OPEN_SSH".equals(...)` maps to agent-style auth)
+- `nameFormat` — cosmetic, e.g. `DESCRIPTIVE`; optional
+- `keyPath` — private key file path; **only present for `PRIVATE_KEY` auth** (DBeaver code reads `SSH_KEY_FILE_PATH = "sshConfig.keyPath"`; both real samples omit it when not key-pair)
+
+### Verified `ssh-properties` shape in `dataSources.local.xml`
+
+From `nyetdb` fixture (both enabled and disabled cases):
+
+```xml
+<data-source name="prod-1000" uuid="u1">
+  <user-name>reader</user-name>
+  <ssh-properties>
+    <enabled>true</enabled>
+    <ssh-config-id>ssh1</ssh-config-id>
+  </ssh-properties>
+</data-source>
+```
+
+Only two children: `<enabled>` (`true`/`false`) and `<ssh-config-id>` (the `<sshConfig id>` value). No host/port/user inside `dataSources.local.xml` — those live in the referenced `sshConfigs.xml` entry. This corrects the earlier assumption that host/port/user could appear here.
+
+### Secret boundary (confirmed)
+
+`sshConfigs.xml` contains **host, port, username, keyPath only** — never passwords, private-key material, or passphrases. Password/key secrets live in the OS keychain (`<secret-storage>master_key</secret-storage>` marker in `dataSources.local.xml`). `keyPath` is a file path, not secret material, but is a user-local machine path so a cross-machine SqlDiff export should **not** attempt to fill it.
+
+## Addendum — Impact on `09-24-datagrip-converter`
+
+The original BLOCKED status cited "SSH XML tags unknown". This addendum supplies authoritative tags from three independent Apache/MIT sources. BLOCKED can be lifted:
+
+- Emit `<sshConfig id host port username authType>` in `sshConfigs.xml` (project-scope by default).
+- Emit `<ssh-properties><enabled>true</enabled><ssh-config-id>...</ssh-config-id></ssh-properties>` in `dataSources.local.xml`.
+- Map SqlDiff `authType: 'password'` → `PASSWORD`, `'privateKey'` → `PRIVATE_KEY` (omit `keyPath`; user re-selects in IDE, matching the DBeaver exporter contract).
+- Skip password/passphrase/key material entirely; no new secret-bearing tag invented.
+
 ## Caveats / Not Found
 
-- **SSH tunnel XML element names are NOT published** in the fetched official docs: staff confirms SSH configs ride in `dataSources.local.xml`/clipboard XML (minus secrets), but exact tags/attributes for the SSH tunnel block (host, key path, auth type) were not found in citable sources. Safest converter output: emit `jdbc-url` + `user-name` and instruct attaching the SSH tunnel in-IDE (or reverse-engineer one real export at implementation time and snapshot it as a fixture). Mark: not found — do not invent tag names.
+- ~~**SSH tunnel XML element names are NOT published** in the fetched official docs~~ — Resolved 2026-10-03 in the Addendum above. See `Addendum 2026-10-03 — SSH XML structure now verified`.
 - Blog paths (2018) predate versioned config dirs; always resolve `<product><version>` dynamically, never hardcode.
 - DataSpell inherits all of the above via the shared IntelliJ platform; no DataSpell-specific deviation found in sources.
 - Second community comment's minimal `<data-source … jdbc-url="…">` attribute-style skeleton contradicts the official nested `<jdbc-url>` element style — prefer the official/nested style plus the live intellij-samples files.
