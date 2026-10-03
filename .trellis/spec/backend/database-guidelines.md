@@ -23,6 +23,29 @@ The main process may execute only:
 
 Generated DDL and DML are comparison output. `data-run.ts` and `compare-run.ts` must never call `pool.query` with `DiffItem.sql` or `DataDiffResult` values.
 
+### Preflight read-only extension
+
+`src-main/preflight-collect.ts` adds a **Preflight-only** read-only surface for the v1 production preflight (see [Preflight Contract](./preflight.md#4-只读-sql-清单)). All Preflight statements are fixed literals with parameterized identifiers; the full list is:
+
+- `SELECT VERSION(), @@version_comment, @@sql_mode, @@innodb_file_per_table, @@transaction_isolation, @@lower_case_table_names, @@character_set_server, @@collation_server` (server facts);
+- `SELECT @@innodb_buffer_pool_size, @@max_connections, @@tmp_table_size, @@sort_buffer_size, @@thread_cache_size, @@innodb_page_size, @@max_allowed_packet` (variable facts);
+- `SELECT table_name, table_rows, data_length, index_length, data_free, engine, row_format, auto_increment, update_time, checksum FROM information_schema.tables WHERE table_schema = ? AND table_name IN (?, ?, ...)` — batched with a `?` placeholder per table, 100 per batch;
+- `SELECT table_name, index_name, column_name, seq_in_index, non_unique FROM information_schema.statistics WHERE table_schema = ? AND table_name IN (?, ?, ...)` — batched the same way;
+- `SELECT table_name, constraint_name, column_name FROM information_schema.key_column_usage WHERE table_schema = ? AND referential_constraint IS NOT NULL` (foreign keys, once per database, filtered in-process by the target table list);
+- `SHOW REPLICA STATUS` (MySQL 8.0.22+) with automatic fallback to `SHOW SLAVE STATUS` for 5.7 / 8.0.21-; both are fixed literals with no parameters;
+- `SELECT @@server_id, @@read_only, @@super_read_only, @@log_bin, @@gtid_mode` (replication-related system variables);
+- `SHOW GRANTS FOR CURRENT_USER()` — the same constant `SQL_SHOW_GRANTS` already used by `grants.ts`; grant text is parsed in-process through `src-core/visibility.ts` and only the structured `permissions.visibility` / `permissions.reliable` verdicts cross back.
+
+**Hard boundary — never allowed in Preflight or anywhere else in the read-only surface:**
+
+- `SET` statements (the substring inside `CONVERT TO CHARACTER SET` is a table-level ALTER clause and does not count as a `SET` statement);
+- `INSERT` / `UPDATE` / `DELETE`;
+- `SELECT ... FOR UPDATE` / `SELECT ... FOR SHARE`;
+- `pool.query(diffItem.sql)` / `pool.execute(...)` or any other path that executes a `DiffItem.sql` value. `preflight-run.ts` and `preflight-collect.ts` are grepped in tests to enforce this;
+- Any invocation of `pt-online-schema-change`, `gh-ost`, or cut-over commands.
+
+Preflight reuses the same error classifier (`classifyCoverageReason`) and same pool abstraction (`DbQueryable`) as `metadata.ts` — no second read path, no new pool implementation.
+
 ## Connection and Concurrency
 
 - Direct connections and one-hop SSH tunnels both return a `mysql2/promise` `Pool` from `createMysqlPool`. The pool limit is five; callers own `pool.end()`.

@@ -18,6 +18,8 @@ apps/desktop/
 │   ├── data-fetch.ts         # COUNT and keyset-paginated SELECT
 │   ├── data-run.ts           # per-table data comparison orchestration
 │   ├── compare-run.ts        # A/B compare orchestration, grant narrowing, and history
+│   ├── preflight-collect.ts  # (v1 preflight) six read-only collectors
+│   ├── preflight-run.ts      # (v1 preflight) 8-stage orchestration + PreflightRequest/PreflightExportResult
 │   ├── download.ts           # will-download save-path policy
 │   └── converters/           # DBeaver exporter + future third-party importers
 ├── src-core/                 # deterministic comparison/filter/risk logic
@@ -27,6 +29,10 @@ apps/desktop/
 │   ├── compare-filter.ts     # browser-safe shared filters
 │   ├── data-*.ts             # row identity, DML generation, option defaults
 │   ├── classify.ts / risk.ts # local tags and explanations
+│   ├── preflight-types.ts    # (v1 preflight) PreflightReport v1 contract + thresholds
+│   ├── preflight-ddl.ts      # (v1 preflight) classifyDdl + Online DDL matrix + version compare
+│   ├── preflight-rules.ts    # (v1 preflight) nine rule evaluators
+│   ├── preflight.ts          # (v1 preflight) buildPreflightReport + serialize + markdown
 │   └── ipc-error.ts          # renderer-safe IPC error sanitization
 ├── scripts/                  # repeatable tooling; icon-source.html + generator
 └── build/icon/               # generated, committed packaging assets
@@ -42,6 +48,7 @@ apps/desktop/
 - `src-core` owns deterministic logic shared by main and renderer. `src-core/compare-filter.ts` explicitly exists so renderer filtering does not pull in `node:crypto`, `mysql2`, or `ssh2`; follow that dependency rule for new shared helpers. `src-core/visibility.ts` is subject to the same rule — regex over strings only.
 - `src-core/types.ts` is the normal source of truth for domain types. `DatabaseMetadata` currently lives in `src-main/metadata.ts`, so consumers in `compare.ts`, `compare-filter.ts`, and `demo.ts` use `import type`; do not turn that into a runtime import.
 - `src-main/converters/dbeaver.ts` is the current SqlDiff → DBeaver topology exporter; `dbeaver.test.ts` is its focused regression. See the [DBeaver Export Contract](./dbeaver-export.md). `src-main/converters/index.ts` remains the future third-party → SqlDiff `NodeConverter` seam, which is a different direction and must not be used for export.
+- `src-core/preflight-*.ts` is the pure-function layer for production preflight (types, DDL classifier, Online DDL matrix, rule evaluators, report builder, serializer, markdown, file names). It carries no Node or `mysql2` imports and is safe to run in both the renderer (which builds and serializes the report) and main (which feeds facts into `buildPreflightReport`). `src-main/preflight-*.ts` is the collection and orchestration layer: `preflight-collect.ts` owns the read-only SQL statements and per-category collectors; `preflight-run.ts` owns the 8-stage orchestration, pool lifecycle, and the `preflight:run` IPC payload types (`PreflightRequest` / `PreflightExportResult`). Keep SQL strings in `preflight-collect.ts`, keep the classifier + matrix in `preflight-ddl.ts`, and keep the rules in `preflight-rules.ts`; do not leak SQL into `preflight-run.ts` and do not leak pool logic into `preflight-*.ts` under `src-core`. See the [Preflight Contract](./preflight.md).
 
 ## Reference-Only Areas
 

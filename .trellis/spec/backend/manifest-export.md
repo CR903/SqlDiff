@@ -126,3 +126,37 @@ const outcome = await saveTextFiles([
 ], '导出审查报告（JSON + Markdown）');
 if (outcome.status === 'canceled') return;
 ```
+
+## 10. Boundary with PreflightReport
+
+`ReviewManifest` and `PreflightReport` are two **independent, complementary** artifacts for one comparison. They are not merged into a single schema, and their schema versions advance independently.
+
+| 维度 | ReviewManifest | PreflightReport |
+|---|---|---|
+| 回答的问题 | 「差异是什么」 | 「应用差异会发生什么」 |
+| schema 常量 | `REVIEW_MANIFEST_VERSION = 1` | `PREFLIGHT_REPORT_VERSION = 1`（独立版本） |
+| 数据来源 | `CompareResult` 的确定性投影 | `CompareResult.items` + B 侧只读观测 |
+| 是否需要数据库 | 否（渲染层纯函数） | 是（`preflight.run` IPC 触发主进程只读采集） |
+| 是否执行 SQL | 否 | 否 |
+| 输出结构 | `items` + `coverage` + `visibility` + `coverageStatus` | `facts` + `inferences` + `unknowns` + `issues` + `verdict`（三段结构） |
+
+**脱敏原则一致，实现不共用**：
+
+- 两者都不含连接凭据（`password` / `sshPassword` / `privateKey` / `passphrase` / `vaultCiphertext` / `userPassword` / `SecretBundle` / 连接串）；
+- 两者都不含未经裁定的行值；
+- ReviewManifest 通过 `redactDmlSql` 在序列化边界对 `objectType === 'data'` 的 DML 做字符串/数字替换；Preflight 只在只读元数据层面观测，本来就不产生行值，因此不需要 DML 脱敏器；
+- Preflight 额外保证**不含原始 `SHOW GRANTS` 文本**：`collectGrantFacts` 通过 `parseGrantLines` 解析后只输出结构化的 `permissions.visibility` / `permissions.reliable` verdict（与 `grants.ts` 保持一致的授权盲区语义），privilege 语句与用户主机名均不外流。
+
+**UI 与文件命名分离**：
+
+- 按钮：`导出审查报告`（manifest）与 `运行 Preflight`（preflight）是两个独立按钮，不联动；
+- 文件前缀：`sqldiff-review-*.json` / `sqldiff-review-*.md` 与 `sqldiff-preflight-*.json` / `sqldiff-preflight-*.md`；
+- 两份文件都通过 `saveTextFiles`（`kind: 'bundle'`）在**一次**目录选择中写盘，成功 toast 上报真实路径。
+
+**边界硬约束（两个方向都是）**：
+
+- Manifest 不读取 PreflightReport，也不调用 preflight 采集；
+- PreflightReport 不引用 ReviewManifest 的字段，也不从 manifest 派生任何值；
+- 两个模块都不新增 SQL 执行入口、都不动 `mysqldiff/`。
+
+完整 Preflight 契约见 [Preflight Contract](./preflight.md)。

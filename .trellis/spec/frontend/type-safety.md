@@ -14,6 +14,38 @@ Main-process modules use default imports for Node built-ins (`fs`, `path`, and `
 - Use `import type` for type-only cross-layer imports. `App.tsx`, `store.ts`, and `sql.ts` import bridge types from `preload.ts`; `compare.ts` and `demo.ts` import `DatabaseMetadata` from `metadata.ts` as a type.
 - Use literal unions and discriminated decisions rather than broad strings. `ChangeType`, `StmtAspect`, `Verb`, `DataTableStatusKind`, `ResultSource`, and `CoverageReason` are declared in `src-core/types.ts`; `IdentityDecision` is declared in `src-main/data-run.ts`.
 
+### Preflight* shared types (v1)
+
+The production-preflight contracts are split across `src-core/preflight-types.ts`, `src-core/preflight-ddl.ts`, and `src-main/preflight-run.ts`. They follow the same ownership rule as review-manifest:
+
+- **`src-core/preflight-types.ts`**（纯定义，零运行时依赖，可跨宿主共享）:
+  - `PREFLIGHT_REPORT_VERSION`（`1 as const`）
+  - `PreflightCategory`（`server` / `table` / `index` / `ddl` / `replication` / `permissions` / `variables`）
+  - `PreflightFact`（`{ category, key, value, source, observedAt }`）
+  - `PreflightFactSource`（`select-version` / `select-sysvars` / `information-schema.tables` / `information-schema.statistics` / `information-schema.key-column-usage` / `show-replica-status` / `show-slave-status` / `show-grants-for-current-user`）
+  - `PreflightInference`（`{ category, subject, statement, confidence, evidence, ruleId }`）
+  - `PreflightInferenceConfidence`（`'high' | 'medium' | 'low'`）
+  - `PreflightUnknown`（`{ category, subject, reason, attempt, observedAt }`）
+  - `PreflightUnknownReason`（`'permission-denied' | 'query-failed' | 'unsupported-version' | 'not-applicable' | 'unparsed-ddl'`）
+  - `PreflightIssue`（`{ id, severity, title, detail, related, recommendation }`）
+  - `PreflightIssueSeverity`（`'block' | 'warn'`）
+  - `PreflightReport`（`{ schemaVersion, appVersion, checkedAt, targetAlias, targetDatabase, source: 'real', facts, inferences, unknowns, issues, verdict }`）
+  - `PreflightThresholds`（`{ bigTableRows, replicaLagSeconds }`）
+  - `DEFAULT_THRESHOLDS`（`{ bigTableRows: 1_000_000, replicaLagSeconds: 30 }`）
+
+- **`src-core/preflight-ddl.ts`**（分类器与矩阵，纯函数）:
+  - `DdlOp`（17 种枚举 + `OTHER`）
+  - `DdlConfidence`（`'high' | 'medium' | 'low'`）
+  - `DdlClassification`（`{ op, tableName, columnName, indexName, statement, confidence }`）
+  - `OnlineDdlInfo`（`{ algorithm, lockMode, rebuildsTable, availableFrom, notes }`）
+
+- **`src-main/preflight-run.ts`**（编排层输入/输出）:
+  - `PreflightRequest`（`{ bId, items, bAlias, bDatabase, thresholds? }`）
+  - `PreflightExportResult`（`{ jsonFileName, markdownFileName, jsonContent, markdownContent, verdictLevel }`）
+
+- **Bridge re-export**: `src-main/preload.ts` uses `import type { PreflightExportResult, PreflightRequest } from './preflight-run'` and `export type { PreflightExportResult, PreflightRequest } from './preflight-run'` — exactly the same shape as the existing `SaveRequest` / `SaveResult` re-export. Renderer callers must not import `PreflightRequest` / `PreflightExportResult` from `./preflight-run` directly; they must go through the `window.sqldiff` bridge contract exposed by `preload.ts`.
+- The `PreflightReport` and its constituent Fact/Inference/Unknown/Issue shapes are pure contracts used inside `src-core/preflight.ts` (renderer build) and `src-main/preflight-run.ts` (main process orchestration); consumers in both processes should use `import type` to avoid runtime imports across layers.
+
 ## Result Source and Coverage Contract
 
 `CompareResult` gained optional `source`, `coverage`, and `visibility` fields. They are optional by design, so treat them as load-bearing at every producer. `coverage` and `visibility` are not redundant: the first reports objects that were enumerated but unreadable, the second reports objects that could not be enumerated at all plus how much of the scope is provably covered.
