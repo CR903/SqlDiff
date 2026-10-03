@@ -1,6 +1,6 @@
+# AGENTS.md — SqlDiff Master Architecture & Global Rules
 
 永远用中文回答
-
 
 ### 📝 开发日志规范（根唯一 · Trellis 门禁）
 
