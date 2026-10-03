@@ -542,6 +542,8 @@ function DiffTable({
   onObjFilter,
   onToggleObj,
   onToggleAspect,
+  onAspectFilter,
+  onVerbFilter,
   onToggleVerb,
   onSelect,
   selectedId,
@@ -571,6 +573,10 @@ function DiffTable({
   onObjFilter: (f: ObjectTypeFilter) => void;
   onToggleObj: (o: ObjectTypeWithData) => void;
   onToggleAspect: (a: StmtAspect) => void;
+  /** 切面「全部」按钮：清空切面选择（aspectFilter = 'ALL'），与对象/动词行「全部」一致。 */
+  onAspectFilter: (f: AspectFilter) => void;
+  /** 动词「全部」按钮：清空动词桶选择（verbFilter = 'ALL'），与对象行「全部」一致。 */
+  onVerbFilter: (f: VerbFilter) => void;
   onToggleVerb: (v: Verb) => void;
   onSelect: (id: string | null) => void;
   selectedId: string | null;
@@ -640,9 +646,13 @@ function DiffTable({
           className="obj-filters obj-filters-subtab"
           title={`「${diffFilter}」内的语句按改动对象分类。切换上方 Tab 会自动清理该 Tab 不适用的选择。`}
         >
-          <span className="diff-stat" style={{ marginLeft: 0 }}>
-            {diffFilter}
-          </span>
+          <button
+            className={aspectFilter === 'ALL' ? 'chip active' : 'chip'}
+            title={`「${diffFilter}」内的全部切面（不限）`}
+            onClick={() => onAspectFilter('ALL')}
+          >
+            全部
+          </button>
           {aspectScope.map((f) => (
             <button
               key={f.value}
@@ -679,9 +689,12 @@ function DiffTable({
         ))}
       </div>
       <div className="obj-filters" title="按语句首动词过滤（CREATE/DROP/ALTER/INSERT/UPDATE/DELETE 多选；与对象/切面/Tab/关键字正交 AND；复制=所见）。与上方 Tab 的区别：Tab 看整条 SQL 的变更结果（CREATE/DROP/CHANGE），此处只看首关键字 —— 如 CREATE OR REPLACE 视图变更归 Tab CHANGE + 动词 CREATE。">
-        <span className="diff-stat" style={{ marginLeft: 0 }}>
-          动词
-        </span>
+        <button
+          className={verbFilter === 'ALL' ? 'chip active' : 'chip'}
+          onClick={() => onVerbFilter('ALL')}
+        >
+          全部
+        </button>
         {VERB_CHIPS.map((v) => (
           <button
             key={v}
@@ -1790,6 +1803,7 @@ export default function App() {
   const toggleObjectType = useDesktopStore((s) => s.toggleObjectType);
   const toggleAspect = useDesktopStore((s) => s.toggleAspect);
   const setAspectFilter = useDesktopStore((s) => s.setAspectFilter);
+  const setVerbFilter = useDesktopStore((s) => s.setVerbFilter);
   const toggleVerb = useDesktopStore((s) => s.toggleVerb);
   const selectDiff = useDesktopStore((s) => s.selectDiff);
   const setToast = useDesktopStore((s) => s.setToast);
@@ -2304,6 +2318,8 @@ export default function App() {
                 onObjFilter={setObjectTypeFilter}
                 onToggleObj={toggleObjectType}
                 onToggleAspect={toggleAspect}
+                onAspectFilter={setAspectFilter}
+                onVerbFilter={setVerbFilter}
                 onToggleVerb={toggleVerb}
                 onSelect={selectDiff}
                 selectedId={selectedId}
