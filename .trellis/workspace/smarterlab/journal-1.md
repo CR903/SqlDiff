@@ -357,3 +357,66 @@ will-download落盘/错误消毒/全部Tab/筛选去重多选；verbOf动词chip
 ### Status
 
 [OK] **Completed**
+
+---
+
+## Session 16: Preflight Report v2 结论式渲染（双视角 + 分层文件）
+
+**日期**: 2026-10-03
+**任务**: `.trellis/tasks/10-03-preflight-report-v2-exec-summary`
+**类型**: 渲染层改造，不动 schema v1
+
+### 背景
+
+用户反馈现有 preflight 报告"含金量不高"——实测 213 行报告中 83%（165 行）是原始 facts，verdict 埋在最底部，Issues 只有 1 条却埋在 facts 之后。
+
+### 用户决定
+
+1. **双视角分开**：开发 vs 运维不同人视角不一样
+2. **方案 C**：两个 md 文件（结论 + 细节），先看结论，有疑问再追溯
+3. **先出完整 PoC**：渲染层先行，不满意再调整数据结构层
+
+### 关键洞察
+
+- 决策语应该三态（GO/DEGRADED/BLOCK）而非四态（pass/warn/block/unknown）—— unknown 多数是 not-applicable 噪声
+- 开发视角关心：DDL 分类成功率、unparsed 清单、表结构隐患
+- 运维视角关心：锁/重建风险分组、表风险热图、环境状态、建议执行窗口
+- `inferences.statement` 是自由文本（如 `d01: ADD_COLUMN on users_big → INSTANT/SHARED`），需正则解析
+
+### 实现
+
+| 文件 | 改动 |
+|---|---|
+| `preflight.ts` | +576 行：工具函数 + 2 个渲染函数 + `preflightFileNames` 扩展 |
+| `preflight-run.ts` | `PreflightExportResult` 新增 detail 字段 |
+| `App.tsx` | `handleExportPreflight` 保存 3 个文件 |
+| `preflight-exec.test.ts` | 新建，47 项单测 |
+| `preflight.md` spec | 追加 §14 v2 结论式渲染章节 |
+
+### 真实 dump 验证
+
+用 `/tmp/preflight-dump/report.json`（8.0.46 真实数据）跑 v2 渲染：
+
+- **report.md**：89 行（原 213 行），首屏含决策 + 双视角
+- **report-detail.md**：217 行，保留完整 5 段结构
+- **交叉引用**：结论底部 `→ [完整原始数据](./xxx-detail.md)`，细节顶部 `← [返回结论](./xxx.md)`
+
+决策语示例：`🟡 DEGRADED` ——「可发布但需排期。1 条 DDL 会 EXCLUSIVE 锁 + 重建，1 条 warn 规则触发，建议低峰执行。」
+
+### 测试
+
+- 605/605 全绿（558 原 + 47 新）
+- typecheck 通过
+- lint（改动文件）无错误
+- JSON schemaVersion=1 保持，序列化 byte 稳定
+
+### Commits
+
+| Hash | Message |
+|---|---|
+| `654a928` | feat(preflight): Report v2 结论式渲染（双视角 + 分层文件） |
+| `4f1148f` | chore(task): mark preflight-report-v2-exec-summary done |
+
+### Status
+
+[OK] **Completed** — PoC 完成，用户可看真实 dump 决定是否满意，不满意再评估 schema v2。
