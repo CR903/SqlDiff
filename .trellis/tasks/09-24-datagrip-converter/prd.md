@@ -36,12 +36,12 @@
 
 ## Acceptance Criteria
 
-- [ ] AC1 生成文件是合法 XML（`<?xml version="1.0" encoding="UTF-8"?>` + `<project version="4">` 根），`dataSources.xml` 与 `dataSources.local.xml` 内同名 `<data-source>` 使用同一个 UUID；含 SSH 时 `sshConfigs.xml` 内 `<sshConfig id>` 与 `dataSources.local.xml` 的 `<ssh-config-id>` 一致。
-- [ ] AC2 至少 3 个样本节点（direct / password SSH / private-key SSH）生成 3 条 `<data-source>`；`driver-ref=mysql.8`、`jdbc-driver=com.mysql.cj.jdbc.Driver`、`jdbc-url=jdbc:mysql://host:port/db`、`<user-name>` 与 SqlDiff 节点一致。
-- [ ] AC3 SSH 节点生成 `<sshConfig authType host id port username>`（`password → PASSWORD`，`privateKey → PRIVATE_KEY`）+ `<ssh-properties>` 中的 `<enabled>true</enabled>` 与匹配 `<ssh-config-id>`；不编造 `keyPath` 或 `passphrase`。
-- [ ] AC4 导出内容、toast、任务证据均不含密码、私钥、passphrase 或 Vault 密文；仅允许 `<secret-storage>master_key</secret-storage>` 控制标记。
-- [ ] AC5 节点选择弹窗可逐节点勾选、全选/全不选，展示每个 SSH 私钥节点的"需在 DataGrip 中重新选择密钥"提示；一次导出落盘 2–3 个 XML 到同一目录，成功 toast 回显真实路径。
-- [ ] AC6 单测、`typecheck`、`lint`、`test`、`build` 和可信 CDP 回归全绿；`mysqldiff/` 零改动；真实 DataGrip IDE 导入烟测作为后续补验记录，不作为本任务阻塞项（与 `09-22-converters` AC6 同口径）。
+- [x] AC1 生成文件是合法 XML（`<?xml version="1.0" encoding="UTF-8"?>` + `<project version="4">` 根），`dataSources.xml` 与 `dataSources.local.xml` 内同名 `<data-source>` 使用同一个 UUID；含 SSH 时 `sshConfigs.xml` 内 `<sshConfig id>` 与 `dataSources.local.xml` 的 `<ssh-config-id>` 一致。
+- [x] AC2 至少 3 个样本节点（direct / password SSH / private-key SSH）生成 3 条 `<data-source>`；`driver-ref=mysql.8`、`jdbc-driver=com.mysql.cj.jdbc.Driver`、`jdbc-url=jdbc:mysql://host:port/db`、`<user-name>` 与 SqlDiff 节点一致。
+- [x] AC3 SSH 节点生成 `<sshConfig authType host id port username>`（`password → PASSWORD`，`privateKey → PRIVATE_KEY`）+ `<ssh-properties>` 中的 `<enabled>true</enabled>` 与匹配 `<ssh-config-id>`；不编造 `keyPath` 或 `passphrase`。
+- [x] AC4 导出内容、toast、任务证据均不含密码、私钥、passphrase 或 Vault 密文；仅允许 `<secret-storage>master_key</secret-storage>` 控制标记。
+- [x] AC5 节点选择弹窗可逐节点勾选、全选/全不选，展示每个 SSH 私钥节点的"需在 DataGrip 中重新选择密钥"提示；一次导出落盘 2–3 个 XML 到同一目录，成功 toast 回显真实路径。（落盘 + toast 回显的 CDP 端到端验证由 `10-03-datagrip-cdp-harness` 补齐）
+- [x] AC6 单测、`typecheck`、`lint`、`test`、`build` 全绿；`mysqldiff/` 零改动；可信 CDP 回归由 `10-03-datagrip-cdp-harness` 补齐；真实 DataGrip IDE 导入烟测作为后续补验记录，不作为本任务阻塞项（与 `09-22-converters` AC6 同口径）。
 
 ## Out of Scope
 
