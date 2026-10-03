@@ -18,6 +18,7 @@ import type { ChangeType,
   StructureCoverage,
   Verb,
 } from '../src-core/types';
+import type { PreflightReport } from '../src-core/preflight-types';
 import { sanitizeIpcError } from '../src-core/ipc-error';
 import {
   DEFAULT_BATCH_ROWS,
@@ -182,6 +183,13 @@ interface DesktopState {
   stats: CompareStats | null;
   /** 上次真实成功比较的请求（审查报告导出用）；demo/失败路径清空。 */
   lastCompareRequest: CompareRequest | null;
+  /**
+   * 最近一次 Preflight 结果（v1 只在内存里，不落盘；用于重新展示与导出）。
+   * 仅真实比较后可生成，无后端/无后端不可用状态清空。
+   */
+  lastPreflightResult: PreflightReport | null;
+  /** Preflight 是否运行中（与 comparing 并列，用于 UI 禁用按钮）。 */
+  preflightRunning: boolean;
   /** 对比进度 */
   comparing: boolean;
   progress: string;
@@ -243,6 +251,11 @@ interface DesktopState {
   refreshHistory: () => Promise<void>;
   runCompare: () => Promise<void>;
   cancelCompare: () => Promise<void>;
+  /**
+   * 运行 Preflight：调 IPC 拿报告，写回 lastPreflightResult。
+   * 失败时写 toast，不 throw。v1 只处理表级 DDL 项（objectType === 'table'）。
+   */
+  runPreflight: () => Promise<void>;
   /** 新增 / 编辑节点（secret 为空表示不改动密钥；新建时可留空）。无主进程时抛错。 */
   saveNode: (input: NodeCreateInput, editingId?: string | null) => Promise<NodeMeta>;
   removeNode: (id: string) => Promise<void>;
@@ -282,6 +295,8 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
   selectedId: null,
   stats: null,
   lastCompareRequest: null,
+  lastPreflightResult: null,
+  preflightRunning: false,
   comparing: false,
   progress: '',
   progressPct: 0,
@@ -625,6 +640,7 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
           coverage: result.coverage ?? null,
           visibility: result.visibility ?? null,
           resultError: null,
+          lastPreflightResult: null,
           lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · ${scopes.join('/')}${includeData ? '/data' : ''} · ${new Date().toLocaleTimeString()} · ${result.stats.ALL} 条差异${dataNote}`,
           toast: needConfirm
             ? '对比完成：部分大表超阈待确认，请二次确认后重跑'
@@ -670,6 +686,7 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
           coverage: null,
           visibility: null,
           resultError: null,
+          lastPreflightResult: null,
           lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · 本地示例数据`,
           toast: `已用本地示例数据演示（${demo.stats.ALL} 条，数据对比需 Electron 后端）`,
         });
@@ -688,6 +705,7 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
         coverage: null,
         visibility: null,
         resultError: clean,
+        lastPreflightResult: null,
         lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · 对比失败`,
         toast: `后端对比失败：${clean}`,
       });
@@ -710,6 +728,53 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
       set({ toast: '已发送取消请求，正在中断数据拉取…' });
     } catch {
       // 忽略。
+    }
+  },
+
+  runPreflight: async () => {
+    const s = get();
+    if (s.preflightRunning || s.comparing) return;
+    const api = getIpc();
+    if (!api) {
+      set({ toast: '无后端：Preflight 不可用' });
+      return;
+    }
+    const req = s.lastCompareRequest;
+    if (!req) {
+      set({ toast: '请先完成一次真实比较' });
+      return;
+    }
+    // v1 只处理表级 DDL；数据 / 视图 / 例程跳过（preflight-collect 侧也做了兜底）。
+    const items = s.items.filter((i) => i.objectType === 'table');
+    if (items.length === 0) {
+      set({ toast: '无可检查的表级 DDL 项' });
+      return;
+    }
+    // bId -> { alias, database } 从 nodes 现查（CompareRequest 只存 id）。
+    const bNode = s.nodes.find((n) => n.id === req.bId);
+    if (!bNode) {
+      set({ toast: '目标节点（B）已不存在，请重新选择' });
+      return;
+    }
+    set({ preflightRunning: true });
+    try {
+      const result = await api.preflight.run({
+        bId: req.bId,
+        items,
+        bAlias: bNode.alias,
+        bDatabase: bNode.database,
+      });
+      const report = JSON.parse(result.jsonContent) as PreflightReport;
+      set({
+        lastPreflightResult: report,
+        preflightRunning: false,
+        toast: `Preflight 完成：${report.verdict.level.toUpperCase()}`,
+      });
+    } catch (err) {
+      set({
+        preflightRunning: false,
+        toast: `Preflight 失败：${sanitizeIpcError(err)}`,
+      });
     }
   },
 }));

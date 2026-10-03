@@ -5,6 +5,7 @@ import { sanitizeIpcError } from '../src-core/ipc-error';
 import { verbOf } from '../src-core/classify';
 import { visibleNodes } from './node-filter';
 import { buildManifest, manifestFileNames, manifestToMarkdown, serializeManifest } from '../src-core/manifest';
+import { preflightFileNames, preflightToMarkdown, serializePreflight } from '../src-core/preflight';
 import type { DataTableLists, DBeaverExportResult, DatagripExportResult, NodeCreateInput, SqlDiffApi } from '../src-main/preload';
 import {
   buildExportText,
@@ -559,6 +560,11 @@ function DiffTable({
   selectedId,
   onExportManifest,
   canExportManifest,
+  onRunPreflight,
+  canRunPreflight,
+  preflightRunning,
+  lastPreflightResult,
+  onExportPreflight,
 }: {
   counts: Record<DiffFilter, number>;
   total: number;
@@ -593,6 +599,12 @@ function DiffTable({
   /** 审查报告导出入口（仅真实比较可用）。 */
   onExportManifest?: () => void;
   canExportManifest?: boolean;
+  /** Preflight 运行入口（仅真实比较可用）。 */
+  onRunPreflight?: () => void;
+  canRunPreflight?: boolean;
+  preflightRunning?: boolean;
+  lastPreflightResult?: { verdict: { level: string; blocking: number; warnings: number; unknowns: number } } | null;
+  onExportPreflight?: () => void;
 }) {
   const isObjOn = (o: ObjectTypeWithData): boolean =>
     objectTypeFilter !== 'ALL' && objectTypeFilter.includes(o);
@@ -647,7 +659,44 @@ function DiffTable({
             导出审查报告
           </button>
         )}
+        {onRunPreflight && (
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={!canRunPreflight}
+            onClick={onRunPreflight}
+            title={
+              canRunPreflight
+                ? '对已 diff 出的表级 DDL 跑只读 Preflight 检查（版本 / 表规模 / 复制延迟 / 权限盲区 / Online DDL 算法）'
+                : '仅真实比较（非 demo、非比对中）可运行 Preflight'
+            }
+          >
+            {preflightRunning ? 'Preflight 运行中…' : '运行 Preflight'}
+          </button>
+        )}
       </div>
+      {lastPreflightResult && (
+        <div
+          className={`preflight-verdict preflight-verdict-${lastPreflightResult.verdict.level}`}
+          role="status"
+          aria-live="polite"
+        >
+          <strong>{lastPreflightResult.verdict.level.toUpperCase()}</strong>
+          <span>
+            · {lastPreflightResult.verdict.blocking} blocking / {lastPreflightResult.verdict.warnings} warnings / {lastPreflightResult.verdict.unknowns} unknowns
+          </span>
+          {onExportPreflight && (
+            <button
+              type="button"
+              className="btn btn-sm preflight-export-btn"
+              onClick={onExportPreflight}
+              title="导出 Preflight 报告（JSON + Markdown，无秘密、无行值）"
+            >
+              导出 Preflight 报告
+            </button>
+          )}
+        </div>
+      )}
       {/* 切面子标签：仅 DROP / CHANGE Tab 出现，按 Tab 作用域限定。
         紧贴 Tab 行、用左色条表达从属关系。计数基座是 byTab（不含切面自身过滤），
         因此数字回答「点了会得到几条」。计数为 0 时显示但禁用——隐藏会让用户以为漏了功能。 */}
@@ -1836,6 +1885,8 @@ export default function App() {
   const visibility = useDesktopStore((s) => s.visibility);
   const resultError = useDesktopStore((s) => s.resultError);
   const toast = useDesktopStore((s) => s.toast);
+  const lastPreflightResult = useDesktopStore((s) => s.lastPreflightResult);
+  const preflightRunning = useDesktopStore((s) => s.preflightRunning);
 
   const setLeftTab = useDesktopStore((s) => s.setLeftTab);
   const setNodeKeyword = useDesktopStore((s) => s.setNodeKeyword);
@@ -1868,6 +1919,7 @@ export default function App() {
   const refreshHistory = useDesktopStore((s) => s.refreshHistory);
   const runCompare = useDesktopStore((s) => s.runCompare);
   const cancelCompare = useDesktopStore((s) => s.cancelCompare);
+  const runPreflight = useDesktopStore((s) => s.runPreflight);
   const removeNode = useDesktopStore((s) => s.removeNode);
   const testNode = useDesktopStore((s) => s.testNode);
   const exportDoc = useDesktopStore((s) => s.exportDoc);
@@ -2157,6 +2209,47 @@ export default function App() {
   // 下载内容层面对 data 项脱敏；导出物不含秘密与未经裁定的行值。
   const canExportManifest = resultSource === 'real' && lastCompareRequest != null && !comparing;
 
+  // Preflight 门控：需真实比较可用 + 非运行中 + 无表格 DDL 项时禁用。
+  const canRunPreflight =
+    resultSource === 'real' && lastCompareRequest != null && !comparing && !preflightRunning;
+
+  const handleRunPreflight = async (): Promise<void> => {
+    if (!canRunPreflight) {
+      setToast('请先完成一次真实比较（不含数据 DML）');
+      return;
+    }
+    await runPreflight();
+  };
+
+  const handleExportPreflight = async (): Promise<void> => {
+    const result = lastPreflightResult;
+    if (!result) {
+      setToast('暂无可导出的 Preflight 报告（先运行 Preflight）');
+      return;
+    }
+    try {
+      const names = preflightFileNames(result.checkedAt);
+      const jsonContent = serializePreflight(result);
+      const markdownContent = preflightToMarkdown(result);
+      const outcome = await saveTextFiles(
+        [
+          { name: names.jsonFileName, content: jsonContent },
+          { name: names.markdownFileName, content: markdownContent },
+        ],
+        '导出 Preflight 报告（JSON + Markdown）',
+      );
+      if (outcome.status === 'canceled') return;
+      if (outcome.status === 'saved') {
+        const dir = outcome.filePaths[0]?.replace(/[/\\][^/\\]*$/, '') ?? '';
+        setToast(exportSavedMessage('已导出 Preflight 报告：JSON + Markdown，目录', dir));
+      } else {
+        setToast('已导出 Preflight 报告（当前为预览模式，文件由浏览器下载）');
+      }
+    } catch (e) {
+      setToast(`导出失败：${sanitizeIpcError(e)}`);
+    }
+  };
+
   const handleExportManifest = async (): Promise<void> => {
     if (!lastCompareRequest) {
       setToast('暂无可导出的审查报告（先完成一次真实比较）');
@@ -2400,6 +2493,11 @@ export default function App() {
                 selectedId={selectedId}
                 onExportManifest={() => void handleExportManifest()}
                 canExportManifest={canExportManifest}
+                onRunPreflight={() => void handleRunPreflight()}
+                canRunPreflight={canRunPreflight}
+                preflightRunning={preflightRunning}
+                lastPreflightResult={lastPreflightResult}
+                onExportPreflight={() => void handleExportPreflight()}
               />
               {dataItems.length === 0 && dataStatus.length === 0 && (
                 <div className="card">
