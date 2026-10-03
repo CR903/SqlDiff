@@ -11,10 +11,12 @@ import type {
 } from '../src-core/types';
 import type { DBeaverExportResult } from './converters/dbeaver';
 import type { DatagripExportResult } from './converters/datagrip';
+import type { PreflightExportResult, PreflightRequest } from './preflight-run';
 import type { SaveRequest, SaveResult } from './save-file';
 
 export type { DBeaverExportResult } from './converters/dbeaver';
 export type { DatagripExportResult } from './converters/datagrip';
+export type { PreflightExportResult, PreflightRequest } from './preflight-run';
 export type { SaveRequest, SaveResult } from './save-file';
 
 // M2：nodes CRUD / test / export / import / 老串导入 + history 接 vault。
@@ -101,6 +103,14 @@ export interface SqlDiffApi {
     /** 订阅数据对比进度（返回取消订阅函数）。 */
     onProgress: (cb: (msg: CompareProgressEvent) => void) => () => void;
   };
+  /**
+   * 生产 Preflight v1：对已 diff 出的 DDL 项跑只读采集（information_schema /
+   * SHOW GRANTS / 复制状态等）与在线 DDL 规则评估，返回 JSON + Markdown 报告文本。
+   * 只读、不落盘、不执行 SQL；落盘统一走 file.save（kind:'bundle'）。
+   */
+  preflight: {
+    run: (req: PreflightRequest) => Promise<PreflightExportResult>;
+  };
   data: {
     /** A/B 表清单（表映射下拉选项）。 */
     tables: (aId: string, bId: string) => Promise<DataTableLists>;
@@ -156,6 +166,10 @@ const api: SqlDiffApi = {
       ipcRenderer.on('compare.progress', handler as (...args: unknown[]) => void);
       return () => ipcRenderer.removeListener('compare.progress', handler as (...args: unknown[]) => void);
     },
+  },
+  preflight: {
+    run: (req: PreflightRequest) =>
+      ipcRenderer.invoke('preflight:run', req) as Promise<PreflightExportResult>,
   },
   data: {
     tables: (aId: string, bId: string) =>

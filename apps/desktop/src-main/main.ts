@@ -12,6 +12,7 @@ import type {
 } from '../src-core/types';
 import type { NodeCreateInput, NodeUpdateInput, NodesImportResult } from './preload';
 import { runCompareRequest } from './compare-run';
+import { runPreflight, type PreflightRequest } from './preflight-run';
 import { format as formatSql } from 'sql-formatter';
 import type { CompareRequest } from '../src-core/types';
 import {
@@ -350,6 +351,15 @@ function registerIpc(): void {
       },
     ).finally(() => {
       if (dataAbort === ctrl) dataAbort = null;
+    });
+  });
+  // 生产 Preflight v1：对已 diff 出的 DDL 项跑只读采集与规则评估，返回 JSON+MD 报告文本。
+  // 只读、不落盘、不执行 SQL；落盘统一走 file.save。secret 从 vault 按 nodeId 取，不进 IPC。
+  ipcMain.handle('preflight:run', (_event, req: PreflightRequest) => {
+    const { userDataDir, vault } = getContext();
+    return runPreflight(req, { userDataDir }, {}, {
+      secretProvider: (id) => vault.getNodeSecret(id) ?? {},
+      appVersion: app.getVersion(),
     });
   });
   // M5：sql.format 经 sql-formatter（mysql 方言，关键字大写）；失败回落原文。
