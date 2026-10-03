@@ -82,7 +82,7 @@ describe('collectServerFacts', () => {
     expect(r.unknowns.length).toBe(0);
     expect(r.facts.length).toBe(8);
     const byKey = factsByKey(r.facts);
-    expect(byKey.get('server.version')).toBe('8.0.36');
+    expect(byKey.get('server.mysql_version')).toBe('8.0.36');
     expect(byKey.get('server.sql_mode')).toBe('ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES');
     expect(byKey.get('server.lower_case_table_names')).toBe(0);
     expect(byKey.get('server.character_set_server')).toBe('utf8mb4');
@@ -330,9 +330,10 @@ describe('collectReplicationFacts', () => {
     expect(byKey.get('replication.seconds_behind_master')).toBe(5);
     expect(byKey.get('replication.is_replica')).toBe(true);
     expect(byKey.get('server.read_only')).toBe('OFF');
-    expect(byKey.get('server.gtid_mode')).toBe('ON');
-    for (const f of r.facts.filter((f) => f.key.startsWith('replication.'))) {
-      expect(f.source).toBe('show-replica-status');
+    expect(byKey.get('replication.gtid_mode')).toBe('ON');
+    // 只有来自 SHOW REPLICA STATUS 的两条 replication fact 用 show-replica-status source。
+    for (const f of r.facts.filter((f) => f.source === 'show-replica-status')) {
+      expect(f.category).toBe('replication');
     }
     // 不应降级到 SHOW SLAVE STATUS。
     expect(db.queries.some((q) => q.includes('SLAVE STATUS'))).toBe(false);
@@ -348,8 +349,8 @@ describe('collectReplicationFacts', () => {
     expect(r.unknowns.length).toBe(0);
     const byKey = factsByKey(r.facts);
     expect(byKey.get('replication.seconds_behind_master')).toBe(3);
-    for (const f of r.facts.filter((f) => f.key.startsWith('replication.'))) {
-      expect(f.source).toBe('show-slave-status');
+    for (const f of r.facts.filter((f) => f.source === 'show-slave-status')) {
+      expect(f.category).toBe('replication');
     }
   });
 
@@ -377,14 +378,14 @@ describe('collectReplicationFacts', () => {
 // ---------------------------------------------------------------------------
 
 describe('collectGrantFacts', () => {
-  it('库级 SELECT 授权 → visibility=full / reliable=true', async () => {
+  it('库级 SELECT 授权（目标库） → visibility=full / reliable=true', async () => {
     const db = fakeDb([
       {
         re: /SHOW GRANTS FOR CURRENT_USER/,
         rows: [{ 'Grants for u@h': "GRANT SELECT ON `shop`.* TO 'u'@'h'" }],
       },
     ]);
-    const r = await collectGrantFacts(db);
+    const r = await collectGrantFacts(db, 'shop');
     expect(r.unknowns.length).toBe(0);
     expect(r.facts.length).toBe(2);
     const byKey = factsByKey(r.facts);
@@ -394,6 +395,21 @@ describe('collectGrantFacts', () => {
       expect(f.source).toBe('show-grants-for-current-user');
       expect(f.category).toBe('permissions');
     }
+  });
+
+  it('库级授权仅覆盖非目标库 → visibility=partial（不会误判为 full）', async () => {
+    // 授权只覆盖 other_db，但目标是 shop：即使有库级授权也不能证明 shop 可见，
+    // 必须收窄为 partial（这是 Stage 1 check 遗留的语义坑，回归防护）。
+    const db = fakeDb([
+      {
+        re: /SHOW GRANTS FOR CURRENT_USER/,
+        rows: [{ 'Grants for u@h': "GRANT SELECT ON `other_db`.* TO 'u'@'h'" }],
+      },
+    ]);
+    const r = await collectGrantFacts(db, 'shop');
+    const byKey = factsByKey(r.facts);
+    expect(byKey.get('permissions.reliable')).toBe(true);
+    expect(byKey.get('permissions.visibility')).toBe('partial');
   });
 
   it('表级 USAGE + SELECT 混合 → visibility=partial / reliable=true', async () => {
@@ -406,29 +422,30 @@ describe('collectGrantFacts', () => {
         ],
       },
     ]);
-    const r = await collectGrantFacts(db);
+    const r = await collectGrantFacts(db, 'shop');
     const byKey = factsByKey(r.facts);
     expect(byKey.get('permissions.visibility')).toBe('partial');
     expect(byKey.get('permissions.reliable')).toBe(true);
   });
 
-  it('权限错误 → Unknown { reason: permission-denied } + visibility=none / reliable=false', async () => {
+  it('权限错误 → Unknown { reason: permission-denied } + visibility=partial / reliable=false', async () => {
     const db = fakeDb([{ re: /SHOW GRANTS FOR CURRENT_USER/, rows: [], err: permissionErr() }]);
-    const r = await collectGrantFacts(db);
+    const r = await collectGrantFacts(db, 'shop');
     expect(r.facts.length).toBe(2);
     const byKey = factsByKey(r.facts);
-    expect(byKey.get('permissions.visibility')).toBe('none');
+    expect(byKey.get('permissions.visibility')).toBe('partial');
     expect(byKey.get('permissions.reliable')).toBe(false);
     expect(r.unknowns.length).toBe(1);
     expect(r.unknowns[0].reason).toBe('permission-denied');
     expect(r.unknowns[0].subject).toBe('permissions.reliable');
   });
 
-  it('一般错误 → Unknown { reason: query-failed } + visibility=none / reliable=false', async () => {
+  it('一般错误 → Unknown { reason: query-failed } + visibility=partial / reliable=false', async () => {
     const db = fakeDb([{ re: /SHOW GRANTS FOR CURRENT_USER/, rows: [], err: genericErr() }]);
-    const r = await collectGrantFacts(db);
+    const r = await collectGrantFacts(db, 'shop');
     expect(r.unknowns[0].reason).toBe('query-failed');
     expect(factsByKey(r.facts).get('permissions.reliable')).toBe(false);
+    expect(factsByKey(r.facts).get('permissions.visibility')).toBe('partial');
   });
 
   it('8.0 角色授权（GRANT `role` TO，无 ON）→ 降级 reliable=false（不猜为 full）', async () => {
@@ -438,10 +455,20 @@ describe('collectGrantFacts', () => {
         rows: [{ 'Grants for u@h': "GRANT `r_admin` TO 'u'@'h'" }],
       },
     ]);
-    const r = await collectGrantFacts(db);
+    const r = await collectGrantFacts(db, 'shop');
     const byKey = factsByKey(r.facts);
     expect(byKey.get('permissions.reliable')).toBe(false);
-    expect(byKey.get('permissions.visibility')).toBe('none');
+    expect(byKey.get('permissions.visibility')).toBe('partial');
+  });
+
+  it('空行（mysql2 返回零行）→ reliable=false + visibility=partial', async () => {
+    const db = fakeDb([{ re: /SHOW GRANTS FOR CURRENT_USER/, rows: [] }]);
+    const r = await collectGrantFacts(db, 'shop');
+    const byKey = factsByKey(r.facts);
+    expect(byKey.get('permissions.reliable')).toBe(false);
+    expect(byKey.get('permissions.visibility')).toBe('partial');
+    // 空行不是错误：不产 unknown。
+    expect(r.unknowns.length).toBe(0);
   });
 });
 
@@ -471,7 +498,7 @@ describe('跨所有采集器：只读硬边界', () => {
       collectTableFacts(db, 'shop', ['t1']),
       collectIndexFacts(db, 'shop', ['t1']),
       collectReplicationFacts(db),
-      collectGrantFacts(db),
+      collectGrantFacts(db, 'shop'),
     ]);
     expect(db.queries.length).toBeGreaterThan(0);
     // 允许 SET 出现在 "CHARACTER SET" 语境（当前 SQL 里其实没有；预留兼容未来字符集 DDL 判定）。
@@ -500,7 +527,7 @@ describe('跨所有采集器：只读硬边界', () => {
       collectTableFacts(db, 'shop', ['t1']),
       collectIndexFacts(db, 'shop', ['t1']),
       collectReplicationFacts(db),
-      collectGrantFacts(db),
+      collectGrantFacts(db, 'shop'),
     ]);
     // 每个采集器都返回对象（不 throw），且含 unknown。
     for (const r of [server, vars, tables, indexes, repl, grants]) {

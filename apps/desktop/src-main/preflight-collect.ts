@@ -12,7 +12,11 @@
 //   的 `BIG_TABLE_COPY` / `READ_ONLY_TARGET` 等规则直接按这些 key 引用。
 // - 授权原文不外流（同 grants.ts）：解析成结构化 `permissions.visibility` /
 //   `permissions.reliable` 两条 fact，不携带 privilege 语句或用户主机名。
+//   复用 `src-core/visibility.ts` 的 `parseGrantLines` + `visibilityFor`（PRD R2 要求，
+//   避免与 compare-run 的授权盲区判定语义漂移），并复用 `grants.ts` 的
+//   `SQL_SHOW_GRANTS` 常量。visibility 语义针对**目标库 B**（不是"任意库"）。
 
+import { parseGrantLines, visibilityFor } from '../src-core/visibility';
 import type {
   PreflightCategory,
   PreflightFact,
@@ -20,6 +24,7 @@ import type {
   PreflightUnknown,
   PreflightUnknownReason,
 } from '../src-core/preflight-types';
+import { SQL_SHOW_GRANTS } from './grants';
 import { classifyCoverageReason, rowsOf } from './metadata';
 import type { DbQueryable } from './metadata';
 
@@ -112,7 +117,10 @@ function chunkPlaceholder(count: number): string {
 // ---------------------------------------------------------------------------
 
 const SERVER_FIELDS: ReadonlyArray<readonly [string, string]> = [
-  ['version', 'server.version'],
+  // fact key 必须与 src-core/preflight-rules.ts 的 mysqlVersion(facts) 查询一致
+  // （后者读 'server.mysql_version'，否则 BIG_TABLE_COPY / LARGE_TABLE_*
+  // 等依赖 MySQL 版本的规则会因找不到版本而静默失效）。
+  ['version', 'server.mysql_version'],
   ['version_comment', 'server.version_comment'],
   ['sql_mode', 'server.sql_mode'],
   ['innodb_file_per_table', 'server.innodb_file_per_table'],
@@ -140,7 +148,7 @@ export async function collectServerFacts(
     const rows = rowsOf(await db.query(SQL_SERVER));
     const row = rows[0];
     if (!row) {
-      unknowns.push(makeUnknown('server', 'server.version', 'query-failed', SQL_SERVER));
+      unknowns.push(makeUnknown('server', 'server.mysql_version', 'query-failed', SQL_SERVER));
     } else {
       for (const [field, key] of SERVER_FIELDS) {
         const v = row[field];
@@ -148,7 +156,7 @@ export async function collectServerFacts(
       }
     }
   } catch (err) {
-    unknowns.push(makeUnknown('server', 'server.version', reasonOf(err), SQL_SERVER));
+    unknowns.push(makeUnknown('server', 'server.mysql_version', reasonOf(err), SQL_SERVER));
   }
   hooks?.onProgress?.('server', facts.length);
   return { facts, unknowns };
@@ -480,6 +488,8 @@ export async function collectReplicationFacts(
   }
 
   // 步骤 2：只读系统变量（server.* key 与 Stage 1 rules 对齐）。
+  // gtid_mode 归入 replication 类别（GTID 是复制语义），
+  // fact key 与 preflight-rules.ts 的 ruleGtidMismatch 查询一致。
   try {
     const rows = rowsOf(await db.query(SQL_REPLICA_SYSVARS));
     const row = rows[0];
@@ -492,7 +502,9 @@ export async function collectReplicationFacts(
         makeFact('server', 'server.super_read_only', toStr(row.super_read_only), 'select-sysvars'),
       );
       facts.push(makeFact('server', 'server.log_bin', toStr(row.log_bin), 'select-sysvars'));
-      facts.push(makeFact('server', 'server.gtid_mode', toStr(row.gtid_mode), 'select-sysvars'));
+      facts.push(
+        makeFact('replication', 'replication.gtid_mode', toStr(row.gtid_mode), 'select-sysvars'),
+      );
     }
   } catch (err) {
     unknowns.push(makeUnknown('server', 'server.server_id', reasonOf(err), SQL_REPLICA_SYSVARS));
@@ -504,87 +516,55 @@ export async function collectReplicationFacts(
 
 // ---------------------------------------------------------------------------
 // Grants：SHOW GRANTS FOR CURRENT_USER() → 结构化 visibility / reliable
+// 复用 grants.ts 的 SQL_SHOW_GRANTS 常量；解析走 src-core/visibility.ts，
+// 与 compare-run 的授权盲区判定共享同一套规则（PRD R2）。
 // ---------------------------------------------------------------------------
 
-export const SQL_SHOW_GRANTS = 'SHOW GRANTS FOR CURRENT_USER()';
-
 /**
- * 简化版 visibility 判定（与 src-core/visibility.ts 语义等价，但本文件不引入
- * visibility 依赖以避免跨模块循环）。判据：
- * - 库级 `ON \`db\`.*` 或全局 `ON *.*` 含 SELECT / ALL → 该库 / 全局 'full'。
- * - 表级 `ON \`db\`.\`tbl\`` 或非读权限库级 → 'partial'（存在不可见对象）。
- * - 未识别形态（8.0 角色授权 GRANT `role` TO / PROXY / 空行）→ reliable:false。
+ * mysql2 对 `SHOW GRANTS` 返回的行只有一列，列名是动态的
+ * （实测 5.7.18：`Grants for cov_limited@127.0.0.1`），因此不能按列名取值，
+ * 逐行取第一个非空字符串单元即可。取不到字符串的行走空串 → parseGrantLines
+ * 判为未识别 → reliable:false。
+ *
+ * 与 src-main/grants.ts 的 grantLine 语义相同；此处保留一份避免
+ * preflight-collect 依赖 grants.ts 里的 assessVisibility（后者吞掉错误细节，
+ * 无法产出 permission-denied Unknown）。
  */
-function assessVisibilitySimplified(rows: Array<Record<string, unknown>>): {
-  reliable: boolean;
-  full: boolean;
-  partial: boolean;
-} {
-  const lines = rows
-    .map((r) => {
-      for (const k of Object.keys(r)) {
-        const v = r[k];
-        if (typeof v === 'string' && v.length > 0) return v;
-      }
-      return '';
-    })
-    .filter((l) => l.length > 0);
-  if (lines.length === 0) return { reliable: false, full: false, partial: false };
-  let reliable = true;
-  let full = false;
-  let partial = false;
-  for (const line of lines) {
-    const m = /^\s*GRANT\s+(.+?)\s+ON\s+(\*|`(?:[^`]|``)*`)\.(\*|`(?:[^`]|``)*`)\s+TO\s/i.exec(line);
-    if (!m) {
-      reliable = false;
-      break;
-    }
-    const privs = m[1]
-      .split(',')
-      .map((p) => p.trim().toUpperCase());
-    const hasRead = privs.some((p) => p === 'SELECT' || p === 'ALL' || p === 'ALL PRIVILEGES');
-    const objA = m[2] === '*' ? '*' : m[2].slice(1, -1);
-    const objB = m[3] === '*' ? '*' : m[3].slice(1, -1);
-    if (objA === '*' && objB === '*') {
-      if (hasRead) full = true;
-      continue;
-    }
-    if (objA === '*') {
-      reliable = false;
-      break;
-    }
-    if (objB === '*') {
-      if (hasRead) full = true;
-      continue;
-    }
-    if (privs.some((p) => p !== 'USAGE')) partial = true;
+function grantLine(row: Record<string, unknown>): string {
+  for (const key of Object.keys(row)) {
+    const v = row[key];
+    if (typeof v === 'string' && v.length > 0) return v;
   }
-  return { reliable, full, partial };
+  return '';
 }
 
 export async function collectGrantFacts(
   db: DbQueryable,
+  targetDatabase: string,
   hooks?: PreflightCollectHooks,
 ): Promise<CollectedFact> {
   const facts: PreflightFact[] = [];
   const unknowns: PreflightUnknown[] = [];
-  let result: { reliable: boolean; full: boolean; partial: boolean };
+
+  let visibility: 'full' | 'partial';
+  let reliable: boolean;
   try {
     const rows = rowsOf(await db.query(SQL_SHOW_GRANTS));
-    result = assessVisibilitySimplified(rows);
+    const assessment = parseGrantLines(rows.map(grantLine));
+    // visibilityFor 严格按**目标库**判定：库级 SELECT/ALL 才判 full，
+    // 表级或非目标库授权一律 partial；reliable=false 一律 partial（收窄）。
+    // 不做大小写不敏感匹配（Linux lower_case_table_names=0 下 Foo/foo 是两个库，
+    // 匹配错误会产生假 full，进而漏出授权盲区）。
+    reliable = assessment.reliable;
+    visibility = visibilityFor(assessment, targetDatabase);
   } catch (err) {
-    result = { reliable: false, full: false, partial: false };
+    // 查询失败：reliable=false，visibility 收窄为 partial（不猜为 full）。
+    reliable = false;
+    visibility = 'partial';
     unknowns.push(makeUnknown('permissions', 'permissions.reliable', reasonOf(err), SQL_SHOW_GRANTS));
   }
-  const visibility: 'full' | 'partial' | 'none' = !result.reliable
-    ? 'none'
-    : result.full
-      ? 'full'
-      : result.partial
-        ? 'partial'
-        : 'none';
   facts.push(makeFact('permissions', 'permissions.visibility', visibility, 'show-grants-for-current-user'));
-  facts.push(makeFact('permissions', 'permissions.reliable', result.reliable, 'show-grants-for-current-user'));
+  facts.push(makeFact('permissions', 'permissions.reliable', reliable, 'show-grants-for-current-user'));
   hooks?.onProgress?.('permissions', facts.length);
   return { facts, unknowns };
 }

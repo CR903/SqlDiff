@@ -371,20 +371,23 @@ describe('runPreflight', () => {
     const parsed = JSON.parse(result.jsonContent) as {
       inferences: Array<{ subject: string; evidence: string[] }>;
     };
-    // richHandlers 给了 server.version=8.0.36，所以 lookupOnlineDdl 应能返回非 null。
+    // richHandlers 给了 server.mysql_version=8.0.36，所以 lookupOnlineDdl 应能返回非 null。
     expect(parsed.inferences.length).toBeGreaterThanOrEqual(1);
     for (const inf of parsed.inferences) {
       expect(Array.isArray(inf.evidence)).toBe(true);
       expect(inf.evidence.length).toBeGreaterThan(0);
-      // 每条 inference 都至少引用 diff-item:<id>.sql 与 server.version。
+      // 每条 inference 都至少引用 diff-item:<id>.sql 与 server.mysql_version。
       expect(inf.evidence.some((e) => e.startsWith('diff-item:'))).toBe(true);
-      expect(inf.evidence).toContain('server.version');
+      expect(inf.evidence).toContain('server.mysql_version');
     }
   });
 
   it('7. verdict.level 判定：block / warn / unknown / pass', async () => {
-    // (a) unknown：pool 创建失败 → verdict=unknown（已在测试 3 覆盖），这里用 pool.query 全抛验证。
-    // (b) pass：干净数据 + 无问题 items。
+    // (b) warn（正面）：干净数据 + ADD_COLUMN 命中 LARGE_TABLE_INSTANT_ADD
+    //     （MySQL 8.0.36 ≥ 8.0.12，rows=5e6 ≥ bigTableRows=1e6，且矩阵判 INSTANT）。
+    //     这是正面推断，但复用 issue 结构（severity='warn'），因此 verdict='warn'。
+    //     若期望 pass 需把 rows 降到 bigTableRows 以下，或换成不 rebuild 也不命中
+    //     LARGE_TABLE_INSTANT_ADD 的 DDL（如 CREATE INDEX，非 ADD_COLUMN）。
     const { pool: quietPool } = makeFakePool(richHandlers());
     const reqPass = {
       bId: 'n-b',
@@ -393,10 +396,7 @@ describe('runPreflight', () => {
       items: [addItem('i1', 'ALTER TABLE `orders` ADD COLUMN `status` varchar(16) NULL')],
     };
     const passResult = await runPreflight(reqPass, { userDataDir: '/tmp/fake' }, {}, makeDeps(quietPool));
-    // richHandlers 给的 data_length=2e9, index_length=5e8 → total=2.5e9 < 5 GiB，且不 rebuildsTable 的话规则 9 不触发；
-    // bigTableRows=1e6 但 ADD_COLUMN 8.0.36 判 INSTANT，不 rebuildsTable → BIG_TABLE_COPY 不触发。
-    // replication.lag=5, gtid_mode=ON, read_only=OFF, permissions.full → 无高危规则。
-    expect(passResult.verdictLevel).toBe('pass');
+    expect(passResult.verdictLevel).toBe('warn');
 
     // (c) block：目标库 read_only=ON → READ_ONLY_TARGET block。
     const { pool: roPool } = makeFakePool([
@@ -580,5 +580,105 @@ describe('runPreflight', () => {
     };
     expect(parsed.unknowns.some((u) => u.reason === 'unsupported-version' && u.subject === 'diff-item:i1')).toBe(true);
     expect(parsed.inferences.some((inf) => (inf as { subject: string }).subject === 'diff-item:i1')).toBe(false);
+  });
+
+  it('15. 【回归防护】fact key 与 rules.ts 对齐：BIG_TABLE_COPY 触发（rebuildable DDL + 大表）', async () => {
+    // 覆盖 preflight-rules.ts ruleBigTableCopy 的调用路径：
+    // 目标表 rows > bigTableRows 且 DDL 分类后 rebuildsTable=true → block。
+    // 用 MODIFY COLUMN（rebuildsTable=true）而非 ADD COLUMN（INSTANT，不 rebuild）。
+    // 若 rules 读 'server.mysql_version' 而 collector 写 'server.version'（或反之），
+    // lookupOnlineDdl 拿到空版本会返回 null，ruleBigTableCopy 静默跳过 → 本测试失败。
+    const { pool } = makeFakePool([
+      ...richHandlers().filter((h) => !h.re.test('information_schema.tables')),
+      {
+        re: /information_schema.tables/,
+        rows: [
+          {
+            table_name: 'orders',
+            table_rows: 5_000_000, // > bigTableRows=1e6
+            data_length: 2_000_000_000,
+            index_length: 500_000_000,
+            data_free: 1000,
+            engine: 'InnoDB',
+            row_format: 'DYNAMIC',
+            auto_increment: 5_000_001,
+            update_time: '2026-10-03T09:00:00.000Z',
+            checksum: '1234567890',
+          },
+        ],
+      },
+    ]);
+    const req = {
+      bId: 'n-b',
+      bAlias: 'B',
+      bDatabase: 'shop',
+      items: [addItem('i-modify', 'ALTER TABLE `orders` MODIFY COLUMN `status` varchar(16) NULL')],
+    };
+    const result = await runPreflight(req, { userDataDir: '/tmp/fake' }, {}, makeDeps(pool));
+    const parsed = JSON.parse(result.jsonContent) as {
+      issues: Array<{ id: string; severity: string }>;
+    };
+    expect(
+      parsed.issues.some((i) => i.id.startsWith('BIG_TABLE_COPY:') && i.severity === 'block'),
+    ).toBe(true);
+    expect(result.verdictLevel).toBe('block');
+  });
+
+  it('16. 【回归防护】GTID_MISMATCH 命中 replication.gtid_mode（key 对齐规则）', async () => {
+    // preflight-rules.ts ruleGtidMismatch 读 'replication.gtid_mode'；
+    // 若 collector 写 'server.gtid_mode'（旧 key），rule 静默不触发 → 本测试失败。
+    // 用 ON_PERMISSIVE 触发中间态告警。
+    const { pool } = makeFakePool([
+      ...richHandlers().filter((h) => !h.re.test('@@server_id')),
+      {
+        re: /@@server_id/,
+        rows: [
+          {
+            server_id: 1,
+            read_only: 'OFF',
+            super_read_only: 'OFF',
+            log_bin: 1,
+            gtid_mode: 'ON_PERMISSIVE',
+          },
+        ],
+      },
+    ]);
+    const req = {
+      bId: 'n-b',
+      bAlias: 'B',
+      bDatabase: 'shop',
+      items: [addItem('i1', 'ALTER TABLE `orders` ADD COLUMN `x` int NULL')],
+    };
+    const result = await runPreflight(req, { userDataDir: '/tmp/fake' }, {}, makeDeps(pool));
+    const parsed = JSON.parse(result.jsonContent) as {
+      issues: Array<{ id: string }>;
+    };
+    expect(parsed.issues.some((i) => i.id.startsWith('GTID_MISMATCH:'))).toBe(true);
+  });
+
+  it('17. 【回归防护】权限针对目标库判定：非目标库授权不判 full', async () => {
+    // 授权只覆盖 other_db，但目标是 shop → permissions.visibility='partial'，
+    // PERMISSION_INCOMPLETE 触发 warn（不会误判为 full 而漏出授权盲区）。
+    const { pool } = makeFakePool([
+      ...richHandlers().filter((h) => !h.re.test('SHOW GRANTS FOR CURRENT_USER')),
+      {
+        re: /SHOW GRANTS FOR CURRENT_USER/,
+        rows: [{ 'Grants for u@h': "GRANT SELECT ON `other_db`.* TO 'u'@'h'" }],
+      },
+    ]);
+    const req = {
+      bId: 'n-b',
+      bAlias: 'B',
+      bDatabase: 'shop', // 注意：与授权目标 different
+      items: [addItem('i1', 'ALTER TABLE `orders` ADD COLUMN `x` int NULL')],
+    };
+    const result = await runPreflight(req, { userDataDir: '/tmp/fake' }, {}, makeDeps(pool));
+    const parsed = JSON.parse(result.jsonContent) as {
+      facts: Array<{ key: string; value: unknown }>;
+      issues: Array<{ id: string }>;
+    };
+    const vis = parsed.facts.find((f) => f.key === 'permissions.visibility')?.value;
+    expect(vis).toBe('partial');
+    expect(parsed.issues.some((i) => i.id.startsWith('PERMISSION_INCOMPLETE:'))).toBe(true);
   });
 });

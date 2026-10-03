@@ -290,7 +290,7 @@ export async function runPreflight(
       const [serverR, varsR, grantsR, replR] = await Promise.allSettled([
         collectServerFacts(db, collectHooks),
         collectVariablesFacts(db, collectHooks),
-        collectGrantFacts(db, collectHooks),
+        collectGrantFacts(db, req.bDatabase, collectHooks),
         collectReplicationFacts(db, collectHooks),
       ]);
       for (const r of [serverR, varsR, grantsR, replR]) {
@@ -326,7 +326,10 @@ export async function runPreflight(
     // --- 阶段 6：为每条 table DDL 生成 Inference 或 Unknown ---
     if (!checkAbort()) {
       hooks.onProgress?.('classify-ddl', 0.85);
-      const versionRow = facts.find((f) => f.key === 'server.version')?.value;
+      // fact key 与 preflight-collect.ts SERVER_FIELDS 一致；rules.ts 的
+      // mysqlVersion(facts) 也读这个 key。三处对齐才能触发 BIG_TABLE_COPY /
+      // LARGE_TABLE_* / GTID_MISMATCH 等依赖 MySQL 版本的规则。
+      const versionRow = facts.find((f) => f.key === 'server.mysql_version')?.value;
       const version = typeof versionRow === 'string' ? versionRow : '';
 
       for (const item of req.items) {
@@ -360,8 +363,8 @@ export async function runPreflight(
         }
 
         // evidence 非空硬约束（Stage 1 check 报告约束）：
-        // 至少包含 diff-item:<id>.sql + server.version；有 tableName 时再补一条。
-        const evidence = [`diff-item:${item.id}.sql`, 'server.version'];
+        // 至少包含 diff-item:<id>.sql + server.mysql_version；有 tableName 时再补一条。
+        const evidence = [`diff-item:${item.id}.sql`, 'server.mysql_version'];
         if (cls.tableName) evidence.push(`table.${cls.tableName}`);
         if (evidence.length === 0) continue;
 
