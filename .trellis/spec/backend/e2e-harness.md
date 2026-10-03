@@ -132,3 +132,55 @@ Far within the 3-min CI threshold. Each spec's `test.beforeAll` launches Electro
 - Remove `.gitignore` entries for `e2e/test-results/` and `e2e/playwright-report/`
 
 None of these affect any existing product behavior.
+
+## Preflight E2E on Real MySQL
+
+### 触发方式
+
+```bash
+# 设置环境变量后手动触发（不合并到 CI，依赖外部 MySQL 可达性）
+E2E_RUN_PREFLIGHT_MYSQL=1 \
+E2E_MYSQL_9_PASSWORD='<pw>' \
+E2E_MYSQL_15_PASSWORD='<pw>' \
+npm run e2e:preflight:mysql
+```
+
+未设置 `E2E_RUN_PREFLIGHT_MYSQL=1` 时整套 spec 静默 skip，不影响 `npm run e2e` 主 harness。
+
+### 版本矩阵
+
+| 机器 | MySQL 版本 | INSTANT ADD | INSTANT DROP |
+|---|---|---|---|
+| 192.168.5.9 | 8.0.46 | ✅ (≥8.0.12) | ✅ (≥8.0.29) |
+| 192.168.5.15 | 8.0.26 | ✅ (≥8.0.12) | ❌ (<8.0.29) |
+
+### Fixture 8 表清单
+
+| 表名 | 特征 | 触发规则 |
+|---|---|---|
+| `orders_empty` | 有 PK、空表 | baseline |
+| `users_big` | 有 PK、~100 万行 | LARGE_TABLE_INSTANT_ADD, BIG_TABLE_COPY |
+| `products_no_pk` | 无主键 | NO_PRIMARY_KEY |
+| `tags_unique` | 有 UNIQUE 索引 | ADD_UNIQUE_INDEX rebuild |
+| `events_fk` | 有外键 | FK 相关分类 |
+| `config_wide` | 100 列宽表 | 列多场景 |
+| `audit_pk_unique` | PK + UNIQUE | 组合索引 |
+| `slow_log_no_index` | 有数据无索引 | 无索引场景 |
+
+### 断言清单（11 项）
+
+1. `schemaVersion === 1`
+2. `server.mysql_version` fact 与 fixture 版本一致
+3. `table.users_big.rows` fact > 0（information_schema 估算值）
+4. ADD_COLUMN Inference `algorithm === 'INSTANT'`（双机一致）
+5. DROP_COLUMN Inference `algorithm` 分叉：8.0.26 → INPLACE；8.0.46 → INSTANT
+6. OTHER 分类落 Unknown（`unparsed-ddl`）
+7. `LARGE_TABLE_INSTANT_ADD` issue 存在（severity='warn'）
+8. `READ_ONLY_TARGET` block issue 触发（临时 `SET GLOBAL read_only=1`）
+9. `permissions.visibility` fact 存在
+10. 6 类 Fact category 覆盖（server/variables/table/index/replication/permissions）
+11. verdict.level 有效（pass/warn/block/unknown）
+
+### 5.7 缺口
+
+MySQL 5.7 INPLACE baseline 分支本轮不覆盖。8.0.26 vs 8.0.46 已覆盖 INSTANT ADD + INSTANT DROP 两个 8.x 关键分叉。5.7 分支另开 follow-up：`preflight-e2e-mysql-5.7`。

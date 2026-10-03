@@ -404,7 +404,7 @@ describe('runPreflight', () => {
       {
         re: /@@server_id/,
         rows: [
-          { server_id: 1, read_only: 'ON', super_read_only: 'OFF', log_bin: 1, gtid_mode: 'ON' },
+          { server_id: 1, read_only: 1, super_read_only: 0, log_bin: 1, gtid_mode: 'ON' },
         ],
       },
     ]);

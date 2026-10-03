@@ -101,6 +101,15 @@ function toStr(v: unknown): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null;
 }
 
+/**
+ * MySQL information_schema 返回大写列名（TABLE_NAME / TABLE_ROWS），
+ * 但部分查询（如 SELECT @@version）返回小写。先用小写 key 访问，
+ * 未命中则尝试大写，兼容两种情况。
+ */
+function cell(row: Record<string, unknown>, key: string): unknown {
+  return row[key] ?? row[key.toUpperCase()];
+}
+
 function chunk<T>(arr: readonly T[], size: number): T[][] {
   if (size < 1) return [arr.slice()];
   const out: T[][] = [];
@@ -239,34 +248,34 @@ export async function collectTableFacts(
     try {
       const rows = rowsOf(await db.query(sql, params));
       for (const row of rows) {
-        const t = toStr(row.table_name);
+        const t = toStr(cell(row, 'table_name'));
         if (!t) continue;
         facts.push(
-          makeFact('table', `table.${t}.rows`, toNumber(row.table_rows), 'information-schema.tables'),
+          makeFact('table', `table.${t}.rows`, toNumber(cell(row, 'table_rows')), 'information-schema.tables'),
         );
         facts.push(
-          makeFact('table', `table.${t}.data_length`, toNumber(row.data_length), 'information-schema.tables'),
+          makeFact('table', `table.${t}.data_length`, toNumber(cell(row, 'data_length')), 'information-schema.tables'),
         );
         facts.push(
           makeFact(
             'table',
             `table.${t}.index_length`,
-            toNumber(row.index_length),
+            toNumber(cell(row, 'index_length')),
             'information-schema.tables',
           ),
         );
         facts.push(
-          makeFact('table', `table.${t}.data_free`, toNumber(row.data_free), 'information-schema.tables'),
+          makeFact('table', `table.${t}.data_free`, toNumber(cell(row, 'data_free')), 'information-schema.tables'),
         );
-        facts.push(makeFact('table', `table.${t}.engine`, toStr(row.engine), 'information-schema.tables'));
+        facts.push(makeFact('table', `table.${t}.engine`, toStr(cell(row, 'engine')), 'information-schema.tables'));
         facts.push(
-          makeFact('table', `table.${t}.row_format`, toStr(row.row_format), 'information-schema.tables'),
+          makeFact('table', `table.${t}.row_format`, toStr(cell(row, 'row_format')), 'information-schema.tables'),
         );
         facts.push(
           makeFact(
             'table',
             `table.${t}.auto_increment`,
-            toNumber(row.auto_increment),
+            toNumber(cell(row, 'auto_increment')),
             'information-schema.tables',
           ),
         );
@@ -274,12 +283,12 @@ export async function collectTableFacts(
           makeFact(
             'table',
             `table.${t}.update_time`,
-            toStr(row.update_time),
+            toStr(cell(row, 'update_time')),
             'information-schema.tables',
           ),
         );
         facts.push(
-          makeFact('table', `table.${t}.checksum`, toNumber(row.checksum), 'information-schema.tables'),
+          makeFact('table', `table.${t}.checksum`, toNumber(cell(row, 'checksum')), 'information-schema.tables'),
         );
       }
     } catch (err) {
@@ -308,7 +317,7 @@ const SQL_INDEX_STATISTICS =
 
 const SQL_FOREIGN_KEYS =
   'SELECT table_name, constraint_name, column_name ' +
-  'FROM information_schema.key_column_usage WHERE table_schema = ? AND referential_constraint IS NOT NULL';
+  'FROM information_schema.key_column_usage WHERE table_schema = ? AND referenced_table_name IS NOT NULL';
 
 export async function collectIndexFacts(
   db: DbQueryable,
@@ -344,19 +353,19 @@ export async function collectIndexFacts(
       continue;
     }
     for (const row of rows) {
-      const t = toStr(row.table_name);
-      const idx = toStr(row.index_name);
+      const t = toStr(cell(row, 'table_name'));
+      const idx = toStr(cell(row, 'index_name'));
       if (!t || !idx) continue;
       const key = `table.${t}.indexes.${idx}.columns`;
       const meta = indexColumns.get(key) ?? { cols: [], nonUnique: null, primary: false };
       if (idx === 'PRIMARY') meta.primary = true;
-      const nu = row.non_unique;
+      const nu = cell(row, 'non_unique');
       if (typeof nu === 'number') meta.nonUnique = nu;
       else if (typeof nu === 'string') {
         const n = Number(nu);
         if (Number.isFinite(n)) meta.nonUnique = n;
       }
-      const col = toStr(row.column_name);
+      const col = toStr(cell(row, 'column_name'));
       if (col && !meta.cols.includes(col)) meta.cols.push(col);
       indexColumns.set(key, meta);
     }
@@ -399,8 +408,8 @@ export async function collectIndexFacts(
   try {
     const rows = rowsOf(await db.query(SQL_FOREIGN_KEYS, [database]));
     for (const row of rows) {
-      const t = toStr(row.table_name);
-      const fk = toStr(row.constraint_name);
+      const t = toStr(cell(row, 'table_name'));
+      const fk = toStr(cell(row, 'constraint_name'));
       if (!t || !fk || !tables.includes(t)) continue;
       facts.push(
         makeFact(
@@ -497,11 +506,11 @@ export async function collectReplicationFacts(
       unknowns.push(makeUnknown('server', 'server.server_id', 'query-failed', SQL_REPLICA_SYSVARS));
     } else {
       facts.push(makeFact('server', 'server.server_id', toNumber(row.server_id), 'select-sysvars'));
-      facts.push(makeFact('server', 'server.read_only', toStr(row.read_only), 'select-sysvars'));
+      facts.push(makeFact('server', 'server.read_only', toNumber(row.read_only), 'select-sysvars'));
       facts.push(
-        makeFact('server', 'server.super_read_only', toStr(row.super_read_only), 'select-sysvars'),
+        makeFact('server', 'server.super_read_only', toNumber(row.super_read_only), 'select-sysvars'),
       );
-      facts.push(makeFact('server', 'server.log_bin', toStr(row.log_bin), 'select-sysvars'));
+      facts.push(makeFact('server', 'server.log_bin', toNumber(row.log_bin), 'select-sysvars'));
       facts.push(
         makeFact('replication', 'replication.gtid_mode', toStr(row.gtid_mode), 'select-sysvars'),
       );

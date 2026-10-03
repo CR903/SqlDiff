@@ -316,7 +316,7 @@ describe('collectIndexFacts', () => {
 
 describe('collectReplicationFacts', () => {
   const SYSVARS_ROWS = [
-    { server_id: 1, read_only: 'OFF', super_read_only: 'OFF', log_bin: 1, gtid_mode: 'ON' },
+    { server_id: 1, read_only: 0, super_read_only: 0, log_bin: 1, gtid_mode: 'ON' },
   ];
 
   it('SHOW REPLICA STATUS 成功：replication facts 来源 show-replica-status', async () => {
@@ -329,7 +329,7 @@ describe('collectReplicationFacts', () => {
     const byKey = factsByKey(r.facts);
     expect(byKey.get('replication.seconds_behind_master')).toBe(5);
     expect(byKey.get('replication.is_replica')).toBe(true);
-    expect(byKey.get('server.read_only')).toBe('OFF');
+    expect(byKey.get('server.read_only')).toBe(0);
     expect(byKey.get('replication.gtid_mode')).toBe('ON');
     // 只有来自 SHOW REPLICA STATUS 的两条 replication fact 用 show-replica-status source。
     for (const f of r.facts.filter((f) => f.source === 'show-replica-status')) {

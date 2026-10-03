@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/backend/e2e-harness.md", "reason": "检查本任务新增的 preflight e2e 章节是否已追加到 e2e-harness.md；检查 e2e 三个新文件的目录归属是否符合 harness 契约"}
+{"file": ".trellis/spec/backend/preflight.md", "reason": "检查断言是否覆盖 PreflightReport 全部关键字段：schemaVersion、6 category fact、PreflightInference.algorithm/rebuildsTable、OTHER → unparsed-ddl Unknown、READ_ONLY_TARGET block"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "检查 e2e fixture 建表 SQL 不违反 preflight 只读原则；检查测试连接串走环境变量、不写死在代码"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "检查 e2e 三个新文件放置正确：fixtures/ 只放 fixture 模块、helpers/ 只放断言工具、specs/ 只放 spec"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "检查不引入新生产依赖；检查产品代码 git diff 为空；检查 npm run typecheck/lint/test 不回归"}
+{"file": ".trellis/tasks/archive/2026-10/10-03-production-preflight/prd.md", "reason": "检查本任务是否补齐父任务 Step 11 缺口；检查 PreflightReport 契约未被本次改动违反"}
+{"file": ".trellis/tasks/archive/2026-10/10-03-production-preflight/implement.md", "reason": "检查 Step 11 要求的 8 表 fixture 是否全部创建；检查双机矩阵覆盖是否合理"}
+{"file": ".trellis/tasks/archive/2026-10/10-03-production-preflight/design.md", "reason": "检查 INSTANT ADD/DROP 版本分叉断言是否与 PreflightInference 契约一致"}
+{"file": ".trellis/tasks/archive/2026-10/10-03-datagrip-cdp-harness/design.md", "reason": "检查是否复用了 CDP harness 已有的 launchElectron / TEST_NODES / assertions 工具，不重复造轮子"}

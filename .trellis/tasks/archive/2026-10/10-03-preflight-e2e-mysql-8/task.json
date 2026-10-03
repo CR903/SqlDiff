@@ -1,0 +1,30 @@
+{
+  "id": "preflight-e2e-mysql-8",
+  "name": "preflight-e2e-mysql-8",
+  "title": "Preflight E2E on MySQL 8（真实库验证）",
+  "description": "在两台真实 MySQL 8.0 开发机（192.168.5.9 = 8.0.46 / 192.168.5.15 = 8.0.26）上跑 preflight 端到端验证：建 8 个 fixture 表、跑 runPreflight、断言 Fact/Inference/Unknown 三段结构与 INSTANT ADD vs INSTANT DROP 版本分叉。补齐 10-03-production-preflight Step 11 缺口",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "smarterlab",
+  "assignee": "smarterlab",
+  "createdAt": "2026-10-03",
+  "completedAt": "2026-10-03",
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "补齐 10-03-production-preflight Step 11 缺口（Docker 不可用导致原计划跳过）。改用两台真实 MySQL 8.x 开发机（.9 = 8.0.46 / .15 = 8.0.26）覆盖 INSTANT ADD vs INSTANT DROP 版本分叉。MySQL 5.7 INPLACE baseline 分支本轮不覆盖，另开 follow-up：preflight-e2e-mysql-5.7。\n\n前置事实：\n- 两台机器均支持建库（已验证）\n- 8.0.26 < 8.0.29 → DROP_COLUMN 仍 INPLACE + rebuild\n- 8.0.46 ≥ 8.0.29 → DROP_COLUMN INSTANT + no rebuild\n- 两台均 ≥ 8.0.12 → ADD_COLUMN 均 INSTANT\n\n密码通过 .env.e2e 环境变量注入，不入库。E2E_RUN_PREFLIGHT_MYSQL 开关控制整套 spec 是否 skip。",
+  "meta": {
+    "priority": "P1",
+    "parent": "10-03-production-preflight",
+    "followUp": "preflight-e2e-mysql-5.7"
+  }
+}

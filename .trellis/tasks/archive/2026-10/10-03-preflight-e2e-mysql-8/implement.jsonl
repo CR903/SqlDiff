@@ -1,0 +1,10 @@
+{"file": ".trellis/spec/backend/e2e-harness.md", "reason": "现有 Playwright + Electron CDP harness 契约：launchElectron / TEST_NODES / 保存对话框拦截 / 断言模式；preflight e2e 必须复用其启动与节点注入模式"}
+{"file": ".trellis/spec/backend/preflight.md", "reason": "PreflightReport v1 契约：schemaVersion、6 类 Fact、PreflightInference.algorithm/rebuildsTable 字段、9 条规则 ID、INSTANT ADD/DROP 版本分叉；本 e2e 的所有断言都对着这份契约"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "只读 SQL 硬边界；fixture 建表 SQL 属于测试基础设施不属于产品代码，但仍需 review 确认不违反 preflight 的只读原则（preflight 本身不做 DDL）"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "确认 e2e 三个新文件（fixtures/mysql-fixture.ts / helpers/preflight-fixture.ts / specs/preflight-on-mysql-8.spec.ts）的目录归属"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "质量门与测试策略：Vitest 单测不回归 558、typecheck/lint 全绿、e2e 独立脚本不合并到 CI"}
+{"file": ".trellis/tasks/archive/2026-10/10-03-production-preflight/prd.md", "reason": "父任务：PreflightReport 契约与 AC1-AC12 定义，本任务为其 Step 11 缺口补齐"}
+{"file": ".trellis/tasks/archive/2026-10/10-03-production-preflight/implement.md", "reason": "Step 11 原始要求（Docker MySQL 5.7 + 8.0 fixture，8 表清单），本任务改为双机 8.x 实现"}
+{"file": ".trellis/tasks/archive/2026-10/10-03-production-preflight/design.md", "reason": "PreflightReport 字段细节、PreflightInference.evidence 硬约束、OTHER 分类 → unparsed-ddl Unknown 语义，本任务断言依赖"}
+{"file": ".trellis/tasks/archive/2026-10/10-03-datagrip-cdp-harness/prd.md", "reason": "CDP harness 前置任务：定义了什么被本任务复用（launchElectron、TEST_NODES、save dialog hook、Playwright 版本）"}
+{"file": ".trellis/tasks/archive/2026-10/10-03-datagrip-cdp-harness/design.md", "reason": "harness 内部结构（helpers/electron.ts / helpers/assertions.ts / fixtures/test-nodes.ts），本任务沿用其分层"}
