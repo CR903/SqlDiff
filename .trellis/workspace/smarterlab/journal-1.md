@@ -461,7 +461,7 @@ UI 显示从 v1 四态（pass/warn/block/unknown）改为 v2 三态（GO/DEGRADE
 
 | Hash | Message |
 |------|---------|
-| TBD | feat(preflight): 5.7 E2E on real MySQL 5.7.44（INPLACE baseline） |
+| `0d59ed0` | feat(preflight): 5.7 E2E on real MySQL 5.7.44（INPLACE baseline） |
 
 ### Status
 
