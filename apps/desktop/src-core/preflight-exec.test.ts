@@ -80,7 +80,7 @@ function issue(overrides: Partial<PreflightIssue> = {}): PreflightIssue {
 
 function buildReport(overrides: Partial<PreflightReport> = {}): PreflightReport {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     appVersion: '0.1.0',
     checkedAt: NOW,
     targetAlias: 'B库',
@@ -91,6 +91,7 @@ function buildReport(overrides: Partial<PreflightReport> = {}): PreflightReport 
     unknowns: [],
     issues: [],
     verdict: { level: 'pass', blocking: 0, warnings: 0, unknowns: 0 },
+    summary: { decision: 'GO', message: '可发布。', blocking: 0, warnings: 0, unknowns: 0 },
     ...overrides,
   };
 }

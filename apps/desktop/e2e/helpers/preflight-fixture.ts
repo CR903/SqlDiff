@@ -172,8 +172,8 @@ const REQUIRED_FACT_CATEGORIES = [
 
 /** 断言 PreflightReport 基础结构完整。 */
 export function assertReportStructure(report: PreflightReport): void {
-  if (report.schemaVersion !== 1) {
-    throw new Error(`schemaVersion expected 1, got ${report.schemaVersion}`);
+  if (report.schemaVersion !== 2) {
+    throw new Error(`schemaVersion expected 2, got ${report.schemaVersion}`);
   }
   if (report.source !== 'real') {
     throw new Error(`source expected 'real', got ${report.source}`);

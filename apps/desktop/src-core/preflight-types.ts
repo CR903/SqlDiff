@@ -8,7 +8,7 @@
 // 边界：本文件不引入任何 Node / mysql2 依赖；所有跨宿主共享。
 
 /** Preflight 报告 schema 版本（升级路径必须有测试覆盖）。 */
-export const PREFLIGHT_REPORT_VERSION = 1 as const;
+export const PREFLIGHT_REPORT_VERSION = 2 as const;
 
 /** Fact / Inference / Unknown / Issue 的类别归属（与 PRD §R2 六类事实对齐）。 */
 export type PreflightCategory =
@@ -96,6 +96,15 @@ export interface PreflightIssue {
   recommendation: string;
 }
 
+/** Schema v2 结论快照：deriveDecision 在报告生成时一次算出并写入（UI/程序直接复用）。 */
+export interface PreflightSummary {
+  decision: 'GO' | 'DEGRADED' | 'BLOCK';
+  message: string;
+  blocking: number;
+  warnings: number;
+  unknowns: number;
+}
+
 /** Preflight 报告总结构（字段顺序即类型声明顺序，用于 byte 稳定序列化）。 */
 export interface PreflightReport {
   schemaVersion: typeof PREFLIGHT_REPORT_VERSION;
@@ -114,6 +123,7 @@ export interface PreflightReport {
     warnings: number;
     unknowns: number;
   };
+  summary: PreflightSummary;
 }
 
 /** 内置默认阈值（Q3 已定：v1 内置默认，不做可配置策略）。 */

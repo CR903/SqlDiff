@@ -16,6 +16,7 @@ import type {
   PreflightInference,
   PreflightIssue,
   PreflightReport,
+  PreflightSummary,
   PreflightThresholds,
   PreflightUnknown,
 } from './preflight-types';
@@ -97,6 +98,20 @@ export function buildPreflightReport(input: PreflightBuildInput): PreflightRepor
   });
   const verdict = deriveVerdict(issues, input.report.unknowns);
   const checkedAt = input.checkedAt ?? new Date().toISOString();
+  // summary 是 verdict/issues 的派生快照：用无 summary 的中间报告一次算出 decision，
+  // 计数直接快照 verdict（与 deriveVerdict 同源，不重新统计）。
+  const decision = deriveDecision({
+    issues,
+    inferences: input.report.inferences,
+    unknowns: input.report.unknowns,
+  });
+  const summary: PreflightSummary = {
+    decision: decision.level,
+    message: decision.message,
+    blocking: verdict.blocking,
+    warnings: verdict.warnings,
+    unknowns: verdict.unknowns,
+  };
   return {
     schemaVersion: PREFLIGHT_REPORT_VERSION,
     appVersion: input.appVersion,
@@ -109,6 +124,7 @@ export function buildPreflightReport(input: PreflightBuildInput): PreflightRepor
     unknowns: input.report.unknowns,
     issues,
     verdict,
+    summary,
   };
 }
 
@@ -404,8 +420,12 @@ export function fmtSize(bytes: number | null): string {
 /**
  * 三态决策语：block 优先；无 block 但有 EXCLUSIVE 锁 / 大表重建 / 复制延迟 → DEGRADED；
  * 其余 → GO。unknowns 不单独影响决策（多数是 not-applicable 噪声）。
+ *
+ * 入参取最小形状（issues/inferences/unknowns），v1 无 summary 的旧报告同样可传。
  */
-export function deriveDecision(m: PreflightReport): Decision {
+export function deriveDecision(
+  m: Pick<PreflightReport, 'issues' | 'inferences' | 'unknowns'>,
+): Decision {
   const blocks = m.issues.filter((i) => i.severity === 'block');
   if (blocks.length > 0) {
     return {
@@ -439,6 +459,34 @@ export function deriveDecision(m: PreflightReport): Decision {
   return {
     level: 'GO',
     message: `可发布。全部 DDL 可用 INSTANT/INPLACE 完成，无阻断、无严重警告。`,
+  };
+}
+
+/**
+ * 读取报告结论快照（Schema v2）。
+ *
+ * - v2 报告（含 summary）直接返回存量快照，不重算；
+ * - v1 旧报告（缺 summary）用 `deriveDecision` 按需回填，计数取自 `verdict`
+ *  （与写入时快照同源），无报错、无强制重跑。
+ */
+export function getSummary(
+  m: Pick<PreflightReport, 'issues' | 'inferences' | 'unknowns'> & {
+    verdict?: PreflightReport['verdict'];
+    summary?: PreflightSummary;
+  },
+): PreflightSummary {
+  const s = m.summary;
+  if (s && (s.decision === 'GO' || s.decision === 'DEGRADED' || s.decision === 'BLOCK')) {
+    return s;
+  }
+  const decision = deriveDecision(m);
+  const v = m.verdict;
+  return {
+    decision: decision.level,
+    message: decision.message,
+    blocking: v?.blocking ?? 0,
+    warnings: v?.warnings ?? 0,
+    unknowns: v?.unknowns ?? m.unknowns.length,
   };
 }
 

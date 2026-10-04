@@ -224,7 +224,7 @@ describe('runPreflight', () => {
     expect(['pass', 'warn', 'block', 'unknown']).toContain(result.verdictLevel);
     // JSON 可解析
     const parsed = JSON.parse(result.jsonContent) as Record<string, unknown>;
-    expect(parsed.schemaVersion).toBe(1);
+    expect(parsed.schemaVersion).toBe(2);
     expect(parsed.targetAlias).toBe('B-prod');
     expect(parsed.targetDatabase).toBe('shop');
     expect(parsed.source).toBe('real');

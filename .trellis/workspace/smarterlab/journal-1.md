@@ -466,3 +466,25 @@ UI 显示从 v1 四态（pass/warn/block/unknown）改为 v2 三态（GO/DEGRADE
 ### Status
 
 [OK] **Completed** — AC1–AC6 全达成，已归档
+
+
+## Session 19: Schema v2 结论进结构
+<!-- trellis-session: v=2 -->
+
+**Date**: 2026-10-04
+**Task**: `.trellis/tasks/archive/2026-10/10-04-schema-v2`
+**Branch**: `main`
+
+### Summary
+
+V2 三个 follow-up 的第一个：`summary { decision, message, blocking/warnings/unknowns }` 进 `PreflightReport`，`schemaVersion` 1→2。`buildPreflightReport` 一次算出写入；新增 `getSummary`（v2 直读 / v1 回填 / 非法回退）；UI 徽标 + toast 改读 `getSummary`，renderer 无 `deriveDecision` 残留；`verdict` 四态保留。单测修 2 处版本断言、新增 6 项，check 另修 1 处弱断言；611/611、typecheck、lint、build 全绿。E2E helper 改要求 version 2；`preflight.md` 追加 §15。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| TBD | feat(preflight): schema v2 结论进结构（summary + getSummary） |
+
+### Status
+
+[OK] **Completed** — AC1–AC5 全达成，已归档

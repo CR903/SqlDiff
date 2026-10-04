@@ -19,7 +19,7 @@ import type { ChangeType,
   Verb,
 } from '../src-core/types';
 import type { PreflightReport } from '../src-core/preflight-types';
-import { deriveDecision } from '../src-core/preflight';
+import { getSummary } from '../src-core/preflight';
 import { sanitizeIpcError } from '../src-core/ipc-error';
 import {
   DEFAULT_BATCH_ROWS,
@@ -772,7 +772,7 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
       set({
         lastPreflightResult: report,
         preflightRunning: false,
-        toast: `Preflight 完成：${deriveDecision(report).level}`,
+        toast: `Preflight 完成：${getSummary(report).decision}`,
       });
     } catch (err) {
       set({

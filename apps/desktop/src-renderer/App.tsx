@@ -5,7 +5,7 @@ import { sanitizeIpcError } from '../src-core/ipc-error';
 import { verbOf } from '../src-core/classify';
 import { visibleNodes } from './node-filter';
 import { buildManifest, manifestFileNames, manifestToMarkdown, serializeManifest } from '../src-core/manifest';
-import { preflightFileNames, preflightToDetailMarkdown, preflightToExecutiveMarkdown, serializePreflight, deriveDecision } from '../src-core/preflight';
+import { preflightFileNames, preflightToDetailMarkdown, preflightToExecutiveMarkdown, serializePreflight, getSummary } from '../src-core/preflight';
 import type { PreflightReport } from '../src-core/preflight-types';
 import type { DataTableLists, DBeaverExportResult, DatagripExportResult, NodeCreateInput, SqlDiffApi } from '../src-main/preload';
 import {
@@ -678,11 +678,11 @@ function DiffTable({
       </div>
       {lastPreflightResult && (
         <div
-          className={`preflight-verdict preflight-verdict-${deriveDecision(lastPreflightResult).level.toLowerCase()}`}
+          className={`preflight-verdict preflight-verdict-${getSummary(lastPreflightResult).decision.toLowerCase()}`}
           role="status"
           aria-live="polite"
         >
-          <strong>{deriveDecision(lastPreflightResult).level}</strong>
+          <strong>{getSummary(lastPreflightResult).decision}</strong>
           <span>
             · {lastPreflightResult.verdict.blocking} blocking / {lastPreflightResult.verdict.warnings} warnings / {lastPreflightResult.verdict.unknowns} unknowns
           </span>

@@ -624,6 +624,15 @@ UI 端（`App.tsx:handleExportPreflight`）通过 `saveTextFiles` 一次保存�
 ### 14.10 Follow-up（不在本任务）
 
 - UI 徽标三态同步：`verdict.level` 从四态（pass/warn/block/unknown）升级为三态（GO/DEGRADED/BLOCK）—— 需改 UI 组件，涉及独立任务。
-- Schema v2 评估：若结论层字段被 UI / 程序复用，再考虑引入 `summary` 字段进 `PreflightReport`。
+- ~~Schema v2 评估~~ → **已落地，见 §15**：`summary` 字段进 `PreflightReport`（`schemaVersion` 1→2）。
 - SQL 生成联动：`ALGORITHM=INSTANT` 等加速建议目前只在 recommendation 文本里，未来可自动追加到生成的 DDL 语句中。
 - 历史对比：多次 preflight 结果 diff（如「本次比上次新增 2 条 warn」）。
+
+## 15. Schema v2：结论进结构
+
+- `PreflightReport.summary: { decision: 'GO'|'DEGRADED'|'BLOCK'; message: string; blocking; warnings; unknowns }`，由 `deriveDecision` 在 `buildPreflightReport` 内一次算出并写入；`PREFLIGHT_REPORT_VERSION = 2`。
+- `deriveDecision` 入参收窄为 `Pick<PreflightReport, 'issues'|'inferences'|'unknowns'>`（最小形状，v1 旧报告同样可传）。
+- `getSummary(report)`：v2 直读存量快照；v1（缺 `summary`）用 `deriveDecision` 回填、计数取自 `verdict`；非法 `summary` 回退重算。
+- UI 徽标（`App.tsx`）与完成 toast（`store.ts`）改读 `getSummary`，不再各自调 `deriveDecision`。
+- `verdict` 四态字段保留（计数来源）；双视角全文仍只活在 md 文件里，不进 JSON。
+- E2E `assertReportStructure` 要求 `schemaVersion === 2`。

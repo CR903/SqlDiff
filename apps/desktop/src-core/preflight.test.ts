@@ -8,6 +8,7 @@ import type { DiffItem } from './types';
 import {
   buildPreflightReport,
   deriveVerdict,
+  getSummary,
   preflightFileNames,
   preflightToMarkdown,
   serializePreflight,
@@ -190,6 +191,7 @@ describe('buildPreflightReport', () => {
     'unknowns',
     'issues',
     'verdict',
+    'summary',
   ] as const;
 
   it('字段顺序严格等于 PreflightReport 类型声明顺序', () => {
@@ -261,6 +263,89 @@ describe('buildPreflightReport', () => {
     const ids = r.issues.map((i) => i.id);
     expect(ids).toContain('BIG_TABLE_COPY:table.orders');
   });
+
+  it('summary 写入：decision 与 verdict 同源（block 场景）', () => {
+    const r = buildPreflightReport(
+      buildInput({
+        checkedAt: NOW,
+        report: {
+          facts: [
+            fact(),
+            fact({ category: 'table', key: 'table.orders.rows', value: 2_000_000 }),
+          ],
+          inferences: [],
+          unknowns: [],
+        },
+        items: [ddlItem('ALTER TABLE orders ADD UNIQUE INDEX u (col)')],
+      }),
+    );
+    // BIG_TABLE_COPY block issue → decision BLOCK
+    expect(r.summary.decision).toBe('BLOCK');
+    expect(r.summary.message.length).toBeGreaterThan(0);
+    expect(r.summary.blocking).toBe(r.verdict.blocking);
+    expect(r.summary.warnings).toBe(r.verdict.warnings);
+    expect(r.summary.unknowns).toBe(r.verdict.unknowns);
+  });
+
+  it('summary 写入：空报告 → GO，计数全 0', () => {
+    const r = emptyReport();
+    expect(r.summary.decision).toBe('GO');
+    expect(r.summary.blocking).toBe(0);
+    expect(r.summary.warnings).toBe(0);
+    expect(r.summary.unknowns).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getSummary · v2 直读 + v1 回填
+// ---------------------------------------------------------------------------
+
+describe('getSummary', () => {
+  it('v2 报告：直接返回存量 summary，不重算', () => {
+    const r = emptyReport();
+    expect(getSummary(r)).toBe(r.summary);
+  });
+
+  it('v1 旧报告（缺 summary）：deriveDecision 回填，计数取自 verdict', () => {
+    const v1 = emptyReport();
+    const { summary: _dropped, ...rest } = v1;
+    void _dropped;
+    const backfilled = getSummary(rest as PreflightReport);
+    expect(backfilled.decision).toBe('GO');
+    expect(backfilled.message.length).toBeGreaterThan(0);
+    expect(backfilled.blocking).toBe(v1.verdict.blocking);
+    expect(backfilled.warnings).toBe(v1.verdict.warnings);
+    expect(backfilled.unknowns).toBe(v1.verdict.unknowns);
+  });
+
+  it('v1 旧报告有 block issue：回填 BLOCK', () => {
+    const r = buildPreflightReport(
+      buildInput({
+        checkedAt: NOW,
+        report: {
+          facts: [
+            fact(),
+            fact({ category: 'table', key: 'table.orders.rows', value: 2_000_000 }),
+          ],
+          inferences: [],
+          unknowns: [],
+        },
+        items: [ddlItem('ALTER TABLE orders ADD UNIQUE INDEX u (col)')],
+      }),
+    );
+    const { summary: _dropped, ...rest } = r;
+    void _dropped;
+    expect(getSummary(rest as PreflightReport).decision).toBe('BLOCK');
+  });
+
+  it('summary 损坏（非法 decision）：回退到 deriveDecision 重算', () => {
+    const r = emptyReport();
+    const corrupted = {
+      ...r,
+      summary: { ...r.summary, decision: 'WRONG' },
+    } as unknown as PreflightReport;
+    expect(getSummary(corrupted).decision).toBe('GO');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -316,6 +401,7 @@ describe('serializePreflight', () => {
       'unknowns',
       'issues',
       'verdict',
+      'summary',
     ]) {
       const idx = text.indexOf(`"${k}"`);
       expect(idx, `字段 ${k} 应出现在文本中`).toBeGreaterThan(lastIdx);
