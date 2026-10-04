@@ -488,3 +488,25 @@ V2 三个 follow-up 的第一个：`summary { decision, message, blocking/warnin
 ### Status
 
 [OK] **Completed** — AC1–AC5 全达成，已归档
+
+
+## Session 20: Report V2 后续双子任务并行收官
+<!-- trellis-session: v2 -->
+
+**Date**: 2026-10-04
+**Tasks**: `10-04-sql-linkage` + `10-04-history-diff`（父 `10-04-preflight-report-v2-followups`）
+**Branch**: `main`
+
+### Summary
+
+sql-linkage：`deriveSuggestedEdits`/`applySuggestedEdit` 纯函数 + executive"可应用的加速建议"节 + UI 预览→确认→可撤销（默认不改交付物）；仅 LARGE_TABLE_INSTANT_adding 带版本前提。history-diff：`preflight-history.json` 按 (bId,database) 分组各存 10 份 + `diffPreflight` + 独立历史 Modal（任意两次 diff，跨组禁用）。并行冲突 1 处（store-json mock 缺新 export）主会话修；终审各修小问题（注释错字、脏条目守卫、注释路径）。650/650、typecheck、lint、build 全绿，一次提交，三任务归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `03449a8` | feat(preflight): SQL 联动加速建议 + 历史对比视图 |
+
+### Status
+
+[OK] **Completed** — 双子 AC 全达成，父任务集成复核通过，已归档

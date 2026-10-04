@@ -1,0 +1,30 @@
+{
+  "id": "preflight-report-v2-followups",
+  "name": "preflight-report-v2-followups",
+  "title": "Preflight Report v2 后续",
+  "description": "V2 渲染层三个 follow-up：schema v2、SQL 生成联动、多次 preflight 历史对比",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "smarterlab",
+  "assignee": "smarterlab",
+  "createdAt": "2026-10-04",
+  "completedAt": "2026-10-04",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-04-schema-v2",
+    "10-04-sql-linkage",
+    "10-04-history-diff"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
