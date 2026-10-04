@@ -5,8 +5,9 @@ import { sanitizeIpcError } from '../src-core/ipc-error';
 import { verbOf } from '../src-core/classify';
 import { visibleNodes } from './node-filter';
 import { buildManifest, manifestFileNames, manifestToMarkdown, serializeManifest } from '../src-core/manifest';
-import { preflightFileNames, preflightToDetailMarkdown, preflightToExecutiveMarkdown, serializePreflight, getSummary } from '../src-core/preflight';
+import { applySuggestedEdit, deriveSuggestedEdits, diffItemIdOfSuggestion, preflightFileNames, preflightToDetailMarkdown, preflightToExecutiveMarkdown, serializePreflight, getSummary, type SuggestedEdit } from '../src-core/preflight';
 import type { PreflightReport } from '../src-core/preflight-types';
+import { PreflightHistoryModal } from './preflight-history';
 import type { DataTableLists, DBeaverExportResult, DatagripExportResult, NodeCreateInput, SqlDiffApi } from '../src-main/preload';
 import {
   buildExportText,
@@ -804,6 +805,78 @@ function DiffTable({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SQL 生成联动：加速建议（预览 diff → 确认应用 → 可撤销，默认不改交付物）
+// ---------------------------------------------------------------------------
+//
+// - 建议由 deriveSuggestedEdits(report) 派生（首批仅 LARGE_TABLE_INSTANT_ADD）；
+// - 应用只改本地待导出文本（SqlPreview 用的 effective items），不触线上执行；
+// - 匹配不上（SQL 已变化 / 已含 ALGORITHM）静默禁用，不硬套。
+
+function PreflightSuggestions({
+  report,
+  items,
+  overrides,
+  onApply,
+  onRevert,
+}: {
+  report: PreflightReport;
+  items: DiffItem[];
+  overrides: Record<string, string>;
+  onApply: (edit: SuggestedEdit) => void;
+  onRevert: (edit: SuggestedEdit) => void;
+}) {
+  const edits = useMemo(() => deriveSuggestedEdits(report), [report]);
+  if (edits.length === 0) return null;
+  const byId = new Map(items.map((it) => [it.id, it]));
+  return (
+    <div className="card" role="region" aria-label="可应用的加速建议">
+      <div className="pane-head">
+        <h2>可应用的加速建议（{edits.length}）</h2>
+        <span className="hint">预览 diff → 确认后作用到待导出 DDL（默认不改，可撤销）</span>
+      </div>
+      {edits.map((edit) => {
+        const diffItemId = diffItemIdOfSuggestion(edit.issueId);
+        const original = diffItemId ? byId.get(diffItemId) : undefined;
+        const applied = diffItemId ? overrides[diffItemId] != null : false;
+        const preview = original ? applySuggestedEdit(original.sql, edit) : null;
+        return (
+          <div className="data-pair-row" key={edit.issueId} title={edit.reason}>
+            <span className="mono">{edit.tableName}</span>
+            <span className="hint">{edit.replace}</span>
+            {original == null ? (
+              <span className="hint">对应 DDL 已不在当前结果中（跳过）</span>
+            ) : preview == null ? (
+              <span className="hint">
+                {applied ? '已应用' : '无法应用（SQL 已变化或已含 ALGORITHM，不硬套）'}
+              </span>
+            ) : (
+              <span className="mono hint" title={`原文：${original.sql} → 建议：${preview}`}>
+                {original.sql} → {preview}
+              </span>
+            )}
+            {applied ? (
+              <button className="mini-btn" onClick={() => onRevert(edit)} title="撤销本次应用，恢复原文">
+                撤销
+              </button>
+            ) : (
+              <button
+                className="mini-btn"
+                disabled={original == null || preview == null}
+                onClick={() => onApply(edit)}
+                title={edit.reason}
+              >
+                应用
+              </button>
+            )}
+          </div>
+        );
+      })}
+      <p className="hint">💡 仅 LARGE_TABLE_INSTANT_ADD 规则覆盖项会列出；建议文案含版本前提（≥8.0.12 且无特殊 DEFAULT 子句）。</p>
     </div>
   );
 }
@@ -1936,6 +2009,10 @@ export default function App() {
   const [coverageOpen, setCoverageOpen] = useState(false);
   // 授权盲区明细展开态：同为 renderer-only UI 状态（与覆盖明细分开，两张卡各自开合）。
   const [visibilityOpen, setVisibilityOpen] = useState(false);
+  // Preflight 历史对比弹窗：renderer-only UI 状态（独立视图，不动现有 preflight 面板逻辑）。
+  const [preflightHistoryOpen, setPreflightHistoryOpen] = useState(false);
+  // SQL 联动：已应用的加速改写（diffItemId → 改写后 SQL；空 = 默认不改交付物，可撤销）。
+  const [suggestedSqlOverrides, setSuggestedSqlOverrides] = useState<Record<string, string>>({});
 
   // 首屏：经 IPC 拉节点 + 历史（失败则保留种子/空历史，离线可用）。
   useEffect(() => {
@@ -2063,6 +2140,14 @@ export default function App() {
           (verbSet === null || verbSet.size === 0 || verbSet.has(verbOf(it.sql))),
       ),
     [byAspect, diffFilter, verbSet],
+  );
+  // SQL 联动：待导出文本 = tabItems 叠加已应用改写（DiffTable 行保持原文，交付物才变）。
+  const effectiveTabItems = useMemo(
+    () =>
+      tabItems.map((it) =>
+        suggestedSqlOverrides[it.id] != null ? { ...it, sql: suggestedSqlOverrides[it.id] } : it,
+      ),
+    [tabItems, suggestedSqlOverrides],
   );
   // DML 空提示条用（数据行已并入主表，此处仅判空指引勾选「数据」）。
   const dataItems = useMemo(() => items.filter((it) => it.objectType === 'data'), [items]);
@@ -2226,6 +2311,44 @@ export default function App() {
     await runPreflight();
   };
 
+  // SQL 联动：新结果到来时清空已应用改写（id 复用但 SQL 可能已变，避免错套）。
+  useEffect(() => {
+    setSuggestedSqlOverrides({});
+  }, [items, lastPreflightResult]);
+
+  const handleApplySuggestion = (edit: SuggestedEdit): void => {
+    const diffItemId = diffItemIdOfSuggestion(edit.issueId);
+    if (!diffItemId) {
+      setToast('无法应用：建议编号异常');
+      return;
+    }
+    const original = items.find((it) => it.id === diffItemId);
+    if (!original) {
+      setToast('无法应用：对应 DDL 已不在当前结果中');
+      return;
+    }
+    const next = applySuggestedEdit(original.sql, edit);
+    if (!next) {
+      setToast('无法应用：SQL 已变化或已含 ALGORITHM，不硬套');
+      return;
+    }
+    if (!window.confirm(`预览 diff：\n\n原文：${original.sql}\n\n建议：${next}\n\n确认应用到待导出 DDL？（可撤销，默认不改交付物）`)) return;
+    setSuggestedSqlOverrides((m) => ({ ...m, [diffItemId]: next }));
+    setToast(`已应用 ${edit.replace}（表 ${edit.tableName}，可撤销）`);
+  };
+
+  const handleRevertSuggestion = (edit: SuggestedEdit): void => {
+    const diffItemId = diffItemIdOfSuggestion(edit.issueId);
+    if (!diffItemId) return;
+    setSuggestedSqlOverrides((m) => {
+      if (m[diffItemId] == null) return m;
+      const next = { ...m };
+      delete next[diffItemId];
+      return next;
+    });
+    setToast(`已撤销 ${edit.tableName} 的加速改写（恢复原文）`);
+  };
+
   const handleExportPreflight = async (): Promise<void> => {
     const result = lastPreflightResult;
     if (!result) {
@@ -2320,6 +2443,13 @@ export default function App() {
         <div className="topbar-right">
           <span>深色智能化</span>
           <span className="dot" />
+          <button
+            className="link-btn"
+            onClick={() => setPreflightHistoryOpen(true)}
+            title="查看历次 Preflight 报告，对比 verdict 变化 + issues 新增 / 消失 / 等级变化（同库任意两次）"
+          >
+            Preflight 历史
+          </button>
           <span>
             <kbd>⌘/Ctrl</kbd> + <kbd>Enter</kbd> 对比
           </span>
@@ -2506,6 +2636,15 @@ export default function App() {
                 lastPreflightResult={lastPreflightResult}
                 onExportPreflight={() => void handleExportPreflight()}
               />
+              {lastPreflightResult && !resultError && (
+                <PreflightSuggestions
+                  report={lastPreflightResult}
+                  items={items}
+                  overrides={suggestedSqlOverrides}
+                  onApply={handleApplySuggestion}
+                  onRevert={handleRevertSuggestion}
+                />
+              )}
               {dataItems.length === 0 && dataStatus.length === 0 && (
                 <div className="card">
                   <div className="empty">暂无数据行 — 勾选「数据」范围并对比后，INSERT / DELETE / UPDATE 行与结构同表展示（可用“数据”对象 chip + 动词 DML 组定位）🍃</div>
@@ -2516,7 +2655,7 @@ export default function App() {
         </section>
 
         <SqlPreview
-          tabItems={tabItems}
+          tabItems={effectiveTabItems}
           selectedId={selectedId}
           aName={aliasOf(slotA)}
           bName={aliasOf(slotB)}
@@ -2582,6 +2721,12 @@ export default function App() {
             setLegacyImportOpen(false);
             setToast(msg);
           }}
+        />
+      )}
+      {preflightHistoryOpen && (
+        <PreflightHistoryModal
+          onClose={() => setPreflightHistoryOpen(false)}
+          onToast={setToast}
         />
       )}
       {toast && <div className="toast show">{toast}</div>}

@@ -636,3 +636,146 @@ UI 端（`App.tsx:handleExportPreflight`）通过 `saveTextFiles` 一次保存�
 - UI 徽标（`App.tsx`）与完成 toast（`store.ts`）改读 `getSummary`，不再各自调 `deriveDecision`。
 - `verdict` 四态字段保留（计数来源）；双视角全文仍只活在 md 文件里，不进 JSON。
 - E2E `assertReportStructure` 要求 `schemaVersion === 2`。
+
+## 16. SQL 生成联动（加速建议派生 + 一键应用）
+
+> 本节是 v2 渲染层的**派生补充**，不改 schema、不改规则引擎、不改只读边界。
+> 建议由报告派生（`deriveSuggestedEdits`），UI 应用只改本地待导出文本，不触线上执行。
+
+### 16.1 定位
+
+- preflight 的 `ALGORITHM=INSTANT`  previously 只躺在 `recommendation` 文案与 executive bullets 里，DDL 本体不受影响；
+- 自动改写用户 DDL 是高风险动作（v1 乐观推断未校验 DEFAULT 子句），故采用「建议 + 一键应用，不直接改交付物」；
+- 建议是**派生数据**，不是新事实：纯函数，不进 `PreflightReport` schema。
+
+### 16.2 `SuggestedEdit` 与纯函数（`src-core/preflight.ts`）
+
+```ts
+interface SuggestedEdit {
+  issueId: string;        // 例 'LARGE_TABLE_INSTANT_ADD:diff-item:d01'
+  tableName: string;
+  find: string;           // 待匹配的 DDL 片段（已归一化，如 'alter table orders'）
+  replace: string;        // 追加子句（首批恒为 'ALGORITHM=INSTANT'）
+  reason: string;         // 引用规则与版本依据（含 ≥8.0.12 前提与乐观推断提示）
+}
+```
+
+- `normalizeDdl(s)`：小写 + 去反引号 + 空白折叠 + 去末尾分号；
+- `deriveSuggestedEdits(m)`：只覆盖 `LARGE_TABLE_INSTANT_ADD`（ADD_COLUMN + ≥8.0.12 + 大表 + 矩阵 INSTANT，四条件与规则同源：issue 已保证，另用 inference 复核 op/algorithm）；找不到 inference / 非 ADD_COLUMN / 非 INSTANT / 无表名 → 该条跳过；
+- `diffItemIdOfSuggestion(issueId)`：从 issueId 反解 diffItemId，供 UI 定位原文；
+- `applySuggestedEdit(sql, edit)`：归一化不含 find 锚点 / 不含 `add` / 已含 `algorithm` / 空串 → 返回 `null`（调用方静默丢弃 + 不硬套）；成功 → 原文去尾分号后追加 `, ALGORITHM=INSTANT`（保留原文大小写与格式，幂等）；
+- 建议文案必须带版本前提（"≥8.0.12 且无特殊 DEFAULT 子句"）+ 乐观推断提示。
+
+### 16.3 executive 新增节
+
+- `preflightToExecutiveMarkdown` 在「### 建议动作」之后、「### DDL 分组」之前插入「### 可应用的加速建议」（只做加法，不重排既有节）；
+- 有建议：`| 建议 | 表 | 建议子句 | 依据 |` 表（规则 id / 表 / `ALGORITHM=INSTANT` / reason，均经 `mdCell` 转义）+ 应用方式脚注；
+- 无建议：`暂无可应用的加速建议（仅 LARGE_TABLE_INSTANT_ADD 规则覆盖项会列出）。` 优雅降级。
+
+### 16.4 UI 流程（`App.tsx`）
+
+```
+report → deriveSuggestedEdits → 预览 diff（原文 → 建议）→ window.confirm 确认
+  → 待导出 DDL 文本替换（suggestedSqlOverrides，key 为 diffItemId）→ 可撤销
+```
+
+- `PreflightSuggestions` 卡片挂在中栏 DiffTable 之后（`lastPreflightResult && !resultError` 才渲染；无建议返回 null，界面保持安静）；
+- `SqlPreview` 改吃 `effectiveTabItems`（tabItems 叠加 overrides）；DiffTable 行保持原文，交付物默认不变；
+- 新比较（`items` / `lastPreflightResult` 变化）清空 overrides，避免 id 复用错套；
+- 匹配不上（SQL 已变化 / 已含 ALGORITHM / 对应 DDL 不在结果中）禁用应用按钮，不硬套。
+
+### 16.5 边界与回滚
+
+- 无 schema 变更（`summary` 保持轻量，Q1 结论不变）；`mysqldiff/` 未改；
+- 只读边界不变：改的是用户本地待导出文本，不是线上执行；`preflight-run.ts` / IPC / `store-json.ts` 不动；
+- 回滚：revert `preflight.ts` 尾部联动块 + executive 插入 3 行 + `App.tsx` 联动块，报告与导出退回无建议态。
+
+### 16.6 测试
+
+- `src-core/preflight-linkage.test.ts`：`normalizeDdl`（大小写/空白/反引号/分号）+ `diffItemIdOfSuggestion` + `deriveSuggestedEdits`（命中 / 非本规则 / 无 inference / 非 ADD_COLUMN / 归一化 / 空报告）+ `applySuggestedEdit`（命中改写 / 归一化命中 / 表不一致 miss / 已含 ALGORITHM 幂等 / 空串）+ executive 新节（有表 / 无占位 / 节顺序建议动作→加速建议→DDL 分组）。
+
+## 17. 多次 preflight 历史对比（10-04-history-diff）
+
+目标：多次 preflight 结果可对比（「本次比上次新增 2 条 warn」），看到风险收敛还是恶化，而非每次只看孤立报告。
+
+### 17.1 类型契约（`src-core/preflight-history.ts`，纯函数、零运行时依赖）
+
+```ts
+interface PreflightHistoryEntry {
+  id: string;                 // run id（randomUUID）
+  at: string;                 // ISO 时间（取报告 checkedAt，与文件名时间戳一致）
+  bId: string; bAlias: string; database: string;
+  schemaVersion: number; appVersion: string;
+  report: PreflightReport;    // 完整报告（含 summary；v1 旧文件读时经 getSummary 回填）
+}
+
+interface PreflightDiff {
+  verdictChanged: boolean;    // 任一 summary 快照字段变化即 true
+  from: PreflightSummary; to: PreflightSummary;
+  addedIssues: PreflightIssue[];      // to 有、from 无（按 issue.id）
+  removedIssues: PreflightIssue[];    // from 有、to 无
+  severityChanged: { id: string; from: string; to: string }[];  // 同 id 不同 severity
+}
+```
+
+- `diffPreflight(a, b)`：同一目标库任意两次报告的 diff；入参为 `DiffableReport`
+  （`Pick<PreflightReport,'issues'|'inferences'|'unknowns'> & { verdict?; summary? }`），
+  v1 旧报告（缺 summary）经 `getSummary` 回填后参与对比，无需强制重跑。
+- `historyGroupKey(e)` = `` `${bId}\n${database}` ``；`sameHistoryGroup(a, b)` 供 UI 禁用跨组选择。
+- `isPreflightHistoryEntry(v)`：读文件时过滤非法条目（report 至少含 issues 数组），不抛。
+- 本文件只读 issues/inferences/unknowns/verdict/summary，不碰 `preflight.ts` 渲染/规则逻辑。
+
+### 17.2 存储（`src-main/store-json.ts`，只做加法）
+
+- 新文件 `preflight-history.json`（与 nodes.json / history.json 同目录），无旧数据迁移；
+  compare 的 `history.json`（20 条摘要）不动。
+- `PREFLIGHT_HISTORY_LIMIT = 10`：按 `(bId, database)` 分组、每组最近 10 份滚动
+  （compare 摘要留 20 条，preflight 报告体量大故取小，PRD R3）。
+- `loadPreflightHistory / appendPreflightHistory / getPreflightHistoryEntry / clearPreflightHistory`，
+  沿用既有原子写（tmp + rename）与读容错（缺失/损坏/非法条目 → 过滤，不抛）模式。
+- 写盘时机：只在 `runPreflight` 成功后 append（阶段 7b，见 §17.3）；
+  失败（无池降级早退）/ 取消（aborted）不留痕，避免半份报告污染对比。
+
+### 17.3 编排（`preflight-run.ts`，只加阶段 7b 调用）
+
+- 报告构建后（`buildPreflightReport` 之后、`exportBundle` 之前）、且 `!aborted` 时 append；
+- `typeof appendPreflightHistory === 'function'` 守卫 + try/catch 隔离：
+  append 失败只丢历史，不丢报告（旧单测 mock 缺该导出时自然跳过）。
+
+### 17.4 IPC 契约（参照现有 preflight IPC 模式）
+
+- 通道：`preflight-history.list` / `preflight-history.get` / `preflight-history.clear`；
+- Preload：`SqlDiffApi.preflight.history.{ list, get, clear }`
+  （`preflight.run` 保持不动；写入只发生在 runPreflight 成功后，此处仅暴露读/清）；
+- `get` 按 id 取单份，不存在时 throw（renderer 侧 sanitize 展示）；
+- diff 由 renderer 侧 `diffPreflight` 纯函数计算，不走 IPC。
+
+### 17.5 UI（独立历史视图，不动现有 preflight 面板逻辑）
+
+- 新文件 `src-renderer/preflight-history.tsx`（`PreflightHistoryModal`）；
+  `App.tsx` 只加：import + `preflightHistoryOpen` 状态 + 顶栏「Preflight 历史」按钮 + 挂载。
+- 视图：按目标库分组 → 同组内选两次（跨组点击直接换组并 toast 提示；已选时他组禁用）
+  → 展示 verdict 变化 + issues 新增/消失/等级变化；`<2` 次时 hint 指引；清空需二次确认。
+- 状态全 renderer-only 本地 state，不进 Zustand；复用既有 `modal` / `data-status` 行式，
+  另补 3 行 `button.data-status-row` 样式（文件尾追加）。
+
+### 17.6 保密边界
+
+- `PreflightReport` 本不含 secret（facts 是版本/行数/结构计数，见 §11.1）；
+  入库字段逐项可扫描：`password / sshPassword / privateKey / passphrase / vaultCiphertext /
+  secret / SHOW GRANTS` 全文不得出现（`preflight-history-store.test.ts` 无秘密入库用例硬约束）。
+
+### 17.7 测试
+
+- `src-core/preflight-history.test.ts`（9 项）：新增 / 消失 / 等级变化 / verdict 翻转 /
+  无变化空 diff / v1 旧报告回填 / 分组键与同组判定 / 条目守卫（合法+非法）。
+- `src-main/preflight-history-store.test.ts`（7 项）：回环排序 / 同组 10 份滚动 /
+  跨组互不影响 / 同 id 去重后置顶 / 非法 throw / get+clear / 无秘密入库扫描。
+- `src-main/preflight-run-history.test.ts`（3 项）：成功 append 一次（含字段与无秘密断言）/
+  append 抛错隔离（主流程照常返回）/ aborted 不写。
+
+### 17.8 回滚
+
+- 删 `preflight-history.json` 即清空历史，无迁移脚本；`mysqldiff/` 未改；
+- 回滚路径：revert `preflight-run.ts` 阶段 7b + IPC 三通道 + `App.tsx` 4 处加法，
+  其余新文件留存但不被调用。

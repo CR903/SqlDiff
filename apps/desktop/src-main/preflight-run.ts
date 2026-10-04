@@ -16,8 +16,10 @@
 // - 不出现 `pool.query(diffItem.sql)` / `pool.execute(...)` / 任何执行 DiffItem.sql 的调用；
 // - 不出现 `pt-online-schema-change` / `gh-ost` / `cut-over` 等外部工具字符串。
 
+import { randomUUID } from 'node:crypto';
 import type { DiffItem, NodeMeta, SecretBundle } from '../src-core/types';
 import { classifyDdl, lookupOnlineDdl } from '../src-core/preflight-ddl';
+
 import {
   buildPreflightReport,
   preflightFileNames,
@@ -32,6 +34,7 @@ import type {
   PreflightUnknown,
 } from '../src-core/preflight-types';
 import { createMysqlPool } from './connection';
+import { appendPreflightHistory, loadNodes } from './store-json';
 import {
   collectGrantFacts,
   collectIndexFacts,
@@ -42,7 +45,6 @@ import {
   type PreflightCollectHooks,
 } from './preflight-collect';
 import type { DbQueryable } from './metadata';
-import { loadNodes } from './store-json';
 
 // ---------------------------------------------------------------------------
 // 类型契约
@@ -406,6 +408,27 @@ export async function runPreflight(
       checkedAt,
     });
     hooks.onProgress?.('done', 1.0);
+
+    // --- 阶段 7b：历史持久化（10-04-history-diff） ---
+    // 只在成功 run 后 append；aborted/取消不留痕（半份报告不污染对比）。
+    // append 失败 try/catch 隔离：历史落盘绝不能影响主流程返回值。
+    // 无池降级路径（buildNoPoolReport 的两处早退）在 try 之外，自然不写。
+    if (!aborted && typeof appendPreflightHistory === 'function') {
+      try {
+        appendPreflightHistory(ctx.userDataDir, {
+          id: randomUUID(),
+          at: report.checkedAt,
+          bId: req.bId,
+          bAlias: req.bAlias,
+          database: req.bDatabase,
+          schemaVersion: report.schemaVersion,
+          appVersion,
+          report,
+        });
+      } catch {
+        // ignore：历史写盘失败只丢历史，不丢报告。
+      }
+    }
 
     // --- 阶段 8：序列化 + 文件名 ---
     return exportBundle(report);

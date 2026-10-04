@@ -18,9 +18,12 @@ import type { CompareRequest } from '../src-core/types';
 import {
   appendHistory,
   clearHistory,
+  clearPreflightHistory,
+  getPreflightHistoryEntry,
   isHistoryEntry,
   loadHistory,
   loadNodes,
+  loadPreflightHistory,
   resolveUserDataDir,
   saveNodes,
 } from './store-json';
@@ -361,6 +364,19 @@ function registerIpc(): void {
       secretProvider: (id) => vault.getNodeSecret(id) ?? {},
       appVersion: app.getVersion(),
     });
+  });
+  // 多次 preflight 历史对比（10-04-history-diff）：独立历史视图的数据通道。
+  // 写入只发生在 runPreflight 成功后（main 侧直写）；此处仅暴露读/清，UI 不直接碰文件。
+  ipcMain.handle('preflight-history.list', () => loadPreflightHistory(getContext().userDataDir));
+  ipcMain.handle('preflight-history.get', (_event, id: string) => {
+    if (typeof id !== 'string' || !id) throw new Error('preflight-history: 缺少 id');
+    const entry = getPreflightHistoryEntry(getContext().userDataDir, id);
+    if (!entry) throw new Error(`preflight-history: 未找到报告 ${id}`);
+    return entry;
+  });
+  ipcMain.handle('preflight-history.clear', () => {
+    clearPreflightHistory(getContext().userDataDir);
+    return true;
   });
   // M5：sql.format 经 sql-formatter（mysql 方言，关键字大写）；失败回落原文。
   ipcMain.handle('sql.format', (event, sql: string) => {

@@ -12,11 +12,13 @@ import type {
 import type { DBeaverExportResult } from './converters/dbeaver';
 import type { DatagripExportResult } from './converters/datagrip';
 import type { PreflightExportResult, PreflightRequest } from './preflight-run';
+import type { PreflightHistoryEntry } from '../src-core/preflight-history';
 import type { SaveRequest, SaveResult } from './save-file';
 
 export type { DBeaverExportResult } from './converters/dbeaver';
 export type { DatagripExportResult } from './converters/datagrip';
 export type { PreflightExportResult, PreflightRequest } from './preflight-run';
+export type { PreflightHistoryEntry } from '../src-core/preflight-history';
 export type { SaveRequest, SaveResult } from './save-file';
 
 // M2：nodes CRUD / test / export / import / 老串导入 + history 接 vault。
@@ -110,6 +112,16 @@ export interface SqlDiffApi {
    */
   preflight: {
     run: (req: PreflightRequest) => Promise<PreflightExportResult>;
+    /**
+     * 多次 preflight 历史对比（10-04-history-diff）：独立历史视图的数据通道。
+     * 写入只发生在 runPreflight 成功后；此处仅读/清。diff 由 renderer 侧
+     * src-core/preflight-history 的 diffPreflight 纯函数计算，不走 IPC。
+     */
+    history: {
+      list: () => Promise<PreflightHistoryEntry[]>;
+      get: (id: string) => Promise<PreflightHistoryEntry>;
+      clear: () => Promise<boolean>;
+    };
   };
   data: {
     /** A/B 表清单（表映射下拉选项）。 */
@@ -170,6 +182,13 @@ const api: SqlDiffApi = {
   preflight: {
     run: (req: PreflightRequest) =>
       ipcRenderer.invoke('preflight:run', req) as Promise<PreflightExportResult>,
+    history: {
+      list: () =>
+        ipcRenderer.invoke('preflight-history.list') as Promise<PreflightHistoryEntry[]>,
+      get: (id: string) =>
+        ipcRenderer.invoke('preflight-history.get', id) as Promise<PreflightHistoryEntry>,
+      clear: () => ipcRenderer.invoke('preflight-history.clear') as Promise<boolean>,
+    },
   },
   data: {
     tables: (aId: string, bId: string) =>

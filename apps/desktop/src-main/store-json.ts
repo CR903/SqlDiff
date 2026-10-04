@@ -8,9 +8,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { HistoryEntry, NodeMeta } from '../src-core/types';
+import type { PreflightHistoryEntry } from '../src-core/preflight-history';
+import { historyGroupKey, isPreflightHistoryEntry } from '../src-core/preflight-history';
 
 /** 历史只留最近 N 条（prd.md R1）。 */
 export const HISTORY_LIMIT = 20;
+
+/**
+ * Preflight 历史：每组（bId + database）只留最近 N 份完整报告。
+ * Compare 历史是 20 条摘要，preflight 报告体量大故取小（prd.md R3）。
+ */
+export const PREFLIGHT_HISTORY_LIMIT = 10;
 
 export function resolveUserDataDir(explicit?: string): string {
   if (explicit && explicit.trim()) return explicit;
@@ -113,4 +121,61 @@ export function appendHistory(userDataDir: string | undefined, entry: HistoryEnt
 /** 清空对比历史。 */
 export function clearHistory(userDataDir?: string): void {
   writeJsonFileAtomic(historyFilePath(userDataDir), []);
+}
+
+// -- preflight history -------------------------------------------------------
+//
+// 多次 preflight 历史对比（10-04-history-diff）：每次成功 run 即存一份完整报告，
+// 按 (bId, database) 分组、每组最近 PREFLIGHT_HISTORY_LIMIT 份滚动淘汰。
+// - 新文件 preflight-history.json，无旧数据迁移；compare 的 history.json 不动。
+// - 无秘密入库：PreflightReport 本不含 secret（facts 是版本/行数/结构计数，
+//   见 preflight.md §11.1 保密边界）；守卫只做形状校验，不碰任何凭据字段。
+
+/** preflight-history.json 路径（与 nodes.json / history.json 同目录）。 */
+export function preflightHistoryFilePath(userDataDir?: string): string {
+  return path.join(resolveUserDataDir(userDataDir), 'preflight-history.json');
+}
+
+/** 读取全部 preflight 历史（新 → 旧；非法条目过滤，不抛）。 */
+export function loadPreflightHistory(userDataDir?: string): PreflightHistoryEntry[] {
+  const raw = readJsonFile<unknown>(preflightHistoryFilePath(userDataDir), []);
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(isPreflightHistoryEntry);
+}
+
+/**
+ * 追加一份 preflight 报告（同 id 去重后置顶），同组超限滚动淘汰后返回最新列表。
+ * 非法条目（缺 id/at/bId/database/report.issues）直接 throw，由调用方隔离。
+ */
+export function appendPreflightHistory(
+  userDataDir: string | undefined,
+  entry: PreflightHistoryEntry,
+): PreflightHistoryEntry[] {
+  if (!isPreflightHistoryEntry(entry)) {
+    throw new Error('store: preflight 历史条目缺少 id/at/bId/database/report.issues');
+  }
+  const key = historyGroupKey(entry);
+  const rest = loadPreflightHistory(userDataDir).filter((h) => h.id !== entry.id);
+  const sameGroup = [entry, ...rest.filter((h) => historyGroupKey(h) === key)].slice(
+    0,
+    PREFLIGHT_HISTORY_LIMIT,
+  );
+  const otherGroups = rest.filter((h) => historyGroupKey(h) !== key);
+  const list = [...sameGroup, ...otherGroups];
+  writeJsonFileAtomic(preflightHistoryFilePath(userDataDir), list);
+  return list;
+}
+
+/** 按 id 取单份 preflight 历史（UI 对比取值用；不存在返回 null）。 */
+export function getPreflightHistoryEntry(
+  userDataDir: string | undefined,
+  id: string,
+): PreflightHistoryEntry | null {
+  if (typeof id !== 'string' || !id) return null;
+  return loadPreflightHistory(userDataDir).find((h) => h.id === id) ?? null;
+}
+
+/** 清空 preflight 历史（删文件即清空，无迁移脚本）。 */
+export function clearPreflightHistory(userDataDir?: string): void {
+  writeJsonFileAtomic(preflightHistoryFilePath(userDataDir), []);
 }

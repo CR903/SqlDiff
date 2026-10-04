@@ -792,6 +792,9 @@ export function preflightToExecutiveMarkdown(m: PreflightReport): string {
   }
   lines.push('');
 
+  lines.push(...renderSuggestedEditsSection(m));
+  lines.push('');
+
   lines.push('### DDL 分组（按风险）');
   lines.push('');
   const renderGroup = (
@@ -919,4 +922,133 @@ export function preflightToDetailMarkdown(m: PreflightReport): string {
     out.push(lines[i]);
   }
   return out.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// SQL 生成联动（§16）：建议是派生数据，不是新事实
+// ---------------------------------------------------------------------------
+//
+// - deriveSuggestedEdits：纯函数，只读 issues/inferences（与规则同源），不进 schema、
+//   不改规则引擎。首批只覆盖 LARGE_TABLE_INSTANT_ADD。
+// - find 用归一化匹配（大小写/空白/反引号/末尾分号不敏感）；匹配不上由调用方静默丢弃。
+// - applySuggestedEdit：把建议作用到单条 DDL 文本（本地待导出文本，不触线上执行）。
+//   已含 ALGORITHM 子句 / 归一化不匹配 → 返回 null（调用方不硬套）。
+// - renderSuggestedEditsSection：executive 新增"可应用的加速建议"一节的数据源。
+
+/** 单条加速建议（派生数据，不进 PreflightReport schema）。 */
+export interface SuggestedEdit {
+  /** 例 'LARGE_TABLE_INSTANT_ADD:diff-item:d01'（规则 id + subject，可反解出 diffItemId）。 */
+  issueId: string;
+  tableName: string;
+  /** 待匹配的 DDL 片段（已归一化，如 'alter table orders'）；匹配不上静默丢弃。 */
+  find: string;
+  /** 追加的子句（首批恒为 'ALGORITHM=INSTANT'）。 */
+  replace: string;
+  /** 引用规则与版本依据（含 ≥8.0.12 前提与乐观推断提示）。 */
+  reason: string;
+}
+
+const SUGGEST_RULE_ID = 'LARGE_TABLE_INSTANT_ADD';
+const SUGGEST_CLAUSE = 'ALGORITHM=INSTANT';
+
+/**
+ * DDL 归一化：小写 + 去反引号 + 空白折叠 + 去末尾分号。
+ * 大小写/空白/反引号差异不影响命中；宁可漏建议，不可错改写。
+ */
+export function normalizeDdl(s: string): string {
+  return (s ?? '')
+    .toLowerCase()
+    .replace(/`/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/;+\s*$/, '')
+    .trim();
+}
+
+/** 从 'LARGE_TABLE_INSTANT_ADD:diff-item:d01' 反解出 diffItemId（'d01'），失败返回 null。 */
+export function diffItemIdOfSuggestion(issueId: string): string | null {
+  const prefix = `${SUGGEST_RULE_ID}:diff-item:`;
+  if (!issueId.startsWith(prefix)) return null;
+  const id = issueId.slice(prefix.length);
+  return id.length > 0 ? id : null;
+}
+
+/**
+ * 派生加速建议（纯函数）。
+ *
+ * - 只覆盖 LARGE_TABLE_INSTANT_ADD（ADD_COLUMN + ≥8.0.12 + 大表 + 矩阵 INSTANT，
+ *   四条件与规则同源：issue 已保证前三者，这里再用 inference 复核 op/algorithm，
+ *   避免"报告说行、建议说不行"）。
+ * - 建议文案带版本前提（≥8.0.12 且无特殊 DEFAULT 子句）+ 乐观推断提示。
+ * - 找不到对应 inference / op 非 ADD_COLUMN / 非 INSTANT / 无表名 → 该条跳过（未命中）。
+ */
+export function deriveSuggestedEdits(
+  m: Pick<PreflightReport, 'issues' | 'inferences' | 'unknowns'>,
+): SuggestedEdit[] {
+  const out: SuggestedEdit[] = [];
+  const prefix = `${SUGGEST_RULE_ID}:`;
+  for (const issue of m.issues) {
+    if (!issue.id.startsWith(prefix)) continue;
+    const subject = issue.id.slice(prefix.length);
+    if (!subject.startsWith('diff-item:')) continue;
+    const inf = m.inferences.find((i) => i.subject === subject);
+    if (!inf) continue;
+    const stmt = parseInferenceStatement(inf.statement);
+    if (stmt.op !== 'ADD_COLUMN') continue;
+    if (stmt.algorithm !== 'INSTANT') continue;
+    if (!stmt.tableName) continue;
+    const tableName = stmt.tableName;
+    out.push({
+      issueId: issue.id,
+      tableName,
+      find: normalizeDdl(`ALTER TABLE ${tableName}`),
+      replace: SUGGEST_CLAUSE,
+      reason:
+        `${SUGGEST_RULE_ID}：MySQL ≥8.0.12 且无特殊 DEFAULT 子句时，表 ${tableName} 的 ADD_COLUMN 可用`
+        + ` ${SUGGEST_CLAUSE} 加速（v1 乐观推断，未校验 DEFAULT 子句；应用前请预览确认）。`,
+    });
+  }
+  return out;
+}
+
+/**
+ * 把单条建议作用到 DDL 文本（纯函数）。
+ *
+ * - 归一化后不含 find 锚点 → null（SQL 已变化，不硬套；调用方静默丢弃）。
+ * - 已含 ALGORITHM 子句 → null（幂等：已应用不再重复追加）。
+ * - 归一化后不含 'add'（非 ADD 类语句误配同一表）→ null。
+ * - 成功 → 原文去尾分号后追加 `, ALGORITHM=INSTANT`（保留原文大小写与格式）。
+ */
+export function applySuggestedEdit(sql: string, edit: SuggestedEdit): string | null {
+  const text = sql ?? '';
+  if (!text.trim()) return null;
+  const n = normalizeDdl(text);
+  if (!n.includes(edit.find)) return null;
+  if (!n.includes('add')) return null;
+  if (n.includes('algorithm')) return null;
+  const base = text.trim().replace(/;+\s*$/, '');
+  return `${base}, ${edit.replace}`;
+}
+
+/** executive "可应用的加速建议"一节（运维视角内，建议动作之后、DDL 分组之前）。 */
+function renderSuggestedEditsSection(
+  m: Pick<PreflightReport, 'issues' | 'inferences' | 'unknowns'>,
+): string[] {
+  const lines: string[] = [];
+  const edits = deriveSuggestedEdits(m);
+  lines.push('### 可应用的加速建议');
+  lines.push('');
+  if (edits.length === 0) {
+    lines.push('暂无可应用的加速建议（仅 LARGE_TABLE_INSTANT_ADD 规则覆盖项会列出）。');
+  } else {
+    lines.push('| 建议 | 表 | 建议子句 | 依据 |');
+    lines.push('| --- | --- | --- | --- |');
+    for (const e of edits) {
+      lines.push(
+        `| ${mdCell(e.issueId)} | ${mdCell(e.tableName)} | ${mdCell(e.replace)} | ${mdCell(e.reason)} |`,
+      );
+    }
+    lines.push('');
+    lines.push('应用方式：UI 预览 diff → 确认后作用到待导出 DDL（默认不改交付物，可撤销）。');
+  }
+  return lines;
 }

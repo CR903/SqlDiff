@@ -208,3 +208,8 @@ button.star { background: none; border: none; cursor: pointer; font-size: 14px; 
 .preflight-verdict-degraded { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
 /* .preflight-verdict-block 复用 v1 样式 */
 .preflight-export-btn { font-size: 11px; padding: 2px 8px; margin-left: auto; }
+
+/* Preflight 历史对比：可选报告行（复用 data-status 行式，button 需显式对齐/字体/手型） */
+button.data-status-row { width: 100%; text-align: left; font: inherit; cursor: pointer; color: #e6edf3; }
+button.data-status-row:hover:not(:disabled) { border-color: #3b82f6; }
+button.data-status-row:disabled { opacity: 0.45; cursor: not-allowed; }

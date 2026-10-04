@@ -36,6 +36,9 @@ vi.mock('./store-json', () => ({
       ssh: { enabled: false, host: '', port: 22, user: '', authType: 'password' },
     },
   ],
+  // 历史持久化在单测中默认禁用：runPreflight 的 append 走 try/catch 隔离，
+  // 此处给一个可观测的 mock，history 专用单测另见 preflight-run-history.test.ts。
+  appendPreflightHistory: vi.fn(),
 }));
 
 // connection.createMysqlPool 默认 mock：走 deps.createPool 时不会用到，但兜底防误调用。
