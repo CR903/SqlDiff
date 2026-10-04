@@ -143,9 +143,14 @@ E2E_RUN_PREFLIGHT_MYSQL=1 \
 E2E_MYSQL_9_PASSWORD='<pw>' \
 E2E_MYSQL_15_PASSWORD='<pw>' \
 npm run e2e:preflight:mysql
+
+# MySQL 5.7（独立开关，与 8.x 开关互不影响）
+E2E_RUN_PREFLIGHT_MYSQL57=1 \
+E2E_MYSQL_57_PASSWORD='<pw>' \
+npm run e2e:preflight:mysql57
 ```
 
-未设置 `E2E_RUN_PREFLIGHT_MYSQL=1` 时整套 spec 静默 skip，不影响 `npm run e2e` 主 harness。
+未设置对应开关时整套 spec 静默 skip，不影响 `npm run e2e` 主 harness。
 
 ### 版本矩阵
 
@@ -153,6 +158,7 @@ npm run e2e:preflight:mysql
 |---|---|---|---|
 | 192.168.5.9 | 8.0.46 | ✅ (≥8.0.12) | ✅ (≥8.0.29) |
 | 192.168.5.15 | 8.0.26 | ✅ (≥8.0.12) | ❌ (<8.0.29) |
+| 192.168.2.84 | 5.7.x | ❌ | ❌（ADD/DROP COLUMN 均走 INPLACE + rebuild） |
 
 ### Fixture 8 表清单
 
@@ -181,6 +187,10 @@ npm run e2e:preflight:mysql
 10. 6 类 Fact category 覆盖（server/variables/table/index/replication/permissions）
 11. verdict.level 有效（pass/warn/block/unknown）
 
-### 5.7 缺口
+### 5.7 INPLACE baseline（已覆盖）
 
-MySQL 5.7 INPLACE baseline 分支本轮不覆盖。8.0.26 vs 8.0.46 已覆盖 INSTANT ADD + INSTANT DROP 两个 8.x 关键分叉。5.7 分支另开 follow-up：`preflight-e2e-mysql-5.7`。
+MySQL 5.7 分支由 `preflight-on-mysql-5-7.spec.ts` 覆盖（`npm run e2e:preflight:mysql57`，
+开关 `E2E_RUN_PREFLIGHT_MYSQL57`，env 约定 `E2E_MYSQL_57_*`，见 `.env.e2e.example` 目标 3）。
+三段对比：5.7（ADD/DROP 均 INPLACE + rebuild，全报告无 INSTANT）/
+8.0.26（ADD INSTANT + DROP INPLACE）/ 8.0.46（双 INSTANT）。
+5.7 反向断言：`BIG_TABLE_COPY` block（rebuild 路径）存在，`LARGE_TABLE_INSTANT_ADD` 永不触发。

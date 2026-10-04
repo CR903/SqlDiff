@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "测试与质量门禁：单测全绿、typecheck、lint"}
+{"file": ".trellis/tasks/archive/2026-10/10-03-preflight-e2e-mysql-8/prd.md", "reason": "8.x 验收标准与不做清单，5.7 对齐"}

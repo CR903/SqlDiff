@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/e2e-harness.md", "reason": "E2E harness 约定：skip-if-missing、独立 npm script、secret 经 env 注入"}
+{"file": ".trellis/spec/backend/preflight.md", "reason": "Preflight v1/v2 契约：report 结构、INPLACE/INSTANT 版本分叉语义"}
+{"file": ".trellis/tasks/archive/2026-10/10-03-preflight-e2e-mysql-8/design.md", "reason": "8.x 双机 E2E 设计：fixture/断言/spec 结构，5.7 直接复用"}

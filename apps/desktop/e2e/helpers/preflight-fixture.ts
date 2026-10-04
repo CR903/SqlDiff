@@ -288,6 +288,39 @@ export function assertOtherGoesToUnknown(report: PreflightReport, itemId: string
 }
 
 /**
+ * 断言 MySQL 5.7 INPLACE baseline：
+ * - d01 ADD_COLUMN → INPLACE + rebuildsTable（5.7 无 INSTANT DDL，8.0.12 才引入 INSTANT ADD）；
+ * - d02 DROP_COLUMN → INPLACE + rebuildsTable（8.0.29 才引入 INSTANT DROP）；
+ * - 整份报告没有任何 INSTANT inference（5.7 矩阵永不返回 INSTANT）。
+ *
+ * 与 `assertInstantAddDrop` 的区别：后者断言 8.x 的 ADD=INSTANT 前提，
+ * 在 5.7 上不成立；此处两者都断 INPLACE，并加全局无 INSTANT 断言。
+ *
+ * statement 形如 `d01: ADD_COLUMN on users_big → INPLACE/SHARED (rebuild)`
+ * （见 `src-main/preflight-run.ts` 阶段 6），`(rebuild)` 后缀即 rebuildsTable=true。
+ */
+export function assertInplaceBaseline(report: PreflightReport): void {
+  for (const id of ['d01', 'd02']) {
+    const subject = `diff-item:${id}`;
+    const inf = findInferenceBySubject(report, subject);
+    if (!inf) throw new Error(`${subject} inference missing`);
+    if (!inf.statement.includes('INPLACE')) {
+      throw new Error(`${subject} expected INPLACE, got statement: ${inf.statement}`);
+    }
+    if (!inf.statement.includes('(rebuild)')) {
+      throw new Error(`${subject} expected (rebuild), got statement: ${inf.statement}`);
+    }
+  }
+
+  const instant = report.inferences.filter((i) => i.statement.includes('INSTANT'));
+  if (instant.length > 0) {
+    throw new Error(
+      `5.7 baseline must not contain INSTANT, got: ${instant.map((i) => i.subject).join(', ')}`,
+    );
+  }
+}
+
+/**
  * 断言 Issue 存在且 severity 符合预期（block 阻断 / warn 提示）。
  * Issue.id 约定见 `src-core/preflight-rules.ts`：
  * - BIG_TABLE_COPY:table.<t>
@@ -312,6 +345,19 @@ export function assertIssue(
     throw new Error(`Issue "${issueId}" expected severity=${expectedSeverity}, got ${issue.severity}`);
   }
   return issue;
+}
+
+/**
+ * 断言指定 Issue 不存在（用于 5.7 的反向断言：
+ * `LARGE_TABLE_INSTANT_ADD` 要求矩阵返回 INSTANT，5.7 永不触发）。
+ */
+export function assertNoIssue(report: PreflightReport, issueIdPrefix: string): void {
+  const hit = report.issues.filter((i) => i.id === issueIdPrefix || i.id.startsWith(`${issueIdPrefix}:`));
+  if (hit.length > 0) {
+    throw new Error(
+      `expected no Issue "${issueIdPrefix}", got: ${hit.map((i) => i.id).join(', ')}`,
+    );
+  }
 }
 
 /**
