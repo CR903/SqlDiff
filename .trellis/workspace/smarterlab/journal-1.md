@@ -483,7 +483,7 @@ V2 三个 follow-up 的第一个：`summary { decision, message, blocking/warnin
 
 | Hash | Message |
 |------|---------|
-| TBD | feat(preflight): schema v2 结论进结构（summary + getSummary） |
+| `55df03c` | feat(preflight): schema v2 结论进结构（summary + getSummary） |
 
 ### Status
 
