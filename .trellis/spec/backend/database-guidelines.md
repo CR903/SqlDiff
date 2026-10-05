@@ -75,8 +75,17 @@ Why this matters: before this contract, `['data']` fell into the same `kept.leng
 Do not "fix" this by blocking data-only runs in the UI. The IPC path and `compare-run.ts:206` bypass renderer validation, so `normalizeScopes` stays the enforcement point. Downstream, an empty structural set is safe: `filterMetadataByScopes` empties all four maps, `postFilterResult` lets `data` rows bypass the structural filter, `mergeCoverage` reports zero `ok` with no misleading `skipped`, and `resolveDataPairs` reads the **unfiltered** snapshots so data pairing still works.
 
 > **Warning**: `lastComboText` must render the executed scope set, not the checkbox state. Concatenating `scopes.join('/')` with a hardcoded `'/data'` suffix emits a leading-slash `· /data` when no structure type is checked, which hides exactly the condition above.
->
-> Known follow-up: `hasDataScope` and `normalizeScopes` read the same array through different rules — `'data'` inside `scopes` drives `normalizeScopes`, while `includeData` drives `hasDataScope`. They agree today because the renderer sends both. A caller that sends only `includeData: true` without the token will diverge; prefer sending structural scopes plus `includeData` and treating `'data'` as a compatibility token.
+
+### Two Rules on One Array — Verified Safe, Do Not "Fix" It
+
+`hasDataScope(scopes, includeData)` and `normalizeScopes(scopes)` both read `CompareRequest.scopes` but answer different questions with different rules: the `'data'` token decides *whether data comparison runs*, while `includeData` does too, and `normalizeScopes` separately decides the structural set. They are **not** redundant, and the overlap is intentional, documented on `CompareRequest` in `src-core/types.ts:137-141` as "`'data'` … equivalent to `includeData`, kept for old callers".
+
+Verified on 2026-10-05, so this is recorded as a known-safe state rather than a pending defect:
+
+- `CompareRequest` has exactly one construction site in the product (`store.ts:609`), and it sends `includeData` and the `'data'` token together.
+- A hypothetical caller sending only `includeData: true` without the token gets `normalizeScopes` → the structural set implied by its own `scopes`, plus data on. That is the intuitive reading, not a silent divergence.
+
+When adding a second caller, send both fields as `store.ts` does. Collapsing `hasDataScope` to read only `includeData` would be a behavior change to a documented compatibility path, not a cleanup — take it to a product decision first.
 
 ## Snapshot and Direction Semantics
 
