@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "质量门禁与测试约定：单测全绿、typecheck、lint、build"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "目录结构约定：tests/ 归位与产品代码边界"}

@@ -1,0 +1,29 @@
+{
+  "id": "test-backfill",
+  "name": "test-backfill",
+  "title": "测试补齐：迁入 tests/ + 补历史功能缺口",
+  "description": "把所有 *.test.ts 迁入 tests/ 目录，并给历史上所有功能点/优化点补上缺失测试用例",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "smarterlab",
+  "assignee": "smarterlab",
+  "createdAt": "2026-10-04",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-04-tests-migration",
+    "10-04-test-gap-backfill"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

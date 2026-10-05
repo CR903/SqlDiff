@@ -4,3 +4,4 @@ mysqldiff/*
 tmp-cdp
 tmp-cdp-*
 docs/
+.mnemon/

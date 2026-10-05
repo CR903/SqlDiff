@@ -52,6 +52,21 @@ Tests are Vitest files under `apps/desktop/tests/`, never beside the implementat
 
 Add or update a test in the mirror directory for the changed layer. `vitest.config.ts` includes only `tests/**/*.test.ts`, and both `tsconfig.json` and `tsconfig.main.json` include `tests`, so a misplaced file fails the run rather than going unnoticed. Test null/empty input, compatibility edges, and cleanup paths, not just the happy path. For filesystem tests, use temporary directories and remove them in `afterEach`, as in `vault.test.ts`.
 
+### Mandatory: every feature and optimization ships tests
+
+No feature, fix, refactor, or optimization is complete without test cases in `tests/`. This is a review-gate item, not a preference — an untested change is an incomplete change even when it works.
+
+Before reporting such work done, confirm each of these:
+
+- Every new or changed exported function has direct cases covering a normal path **and** a boundary or failure path. Indirect coverage (a caller happens to reach it) does not count; import and call it.
+- Security primitives get adversarial cases, not just happy paths. `assertSafeNodeId` requires traversal shapes (`../etc/passwd`, `..`, `a/b`, `a\b`, `/abs/path`, `secrets/../../x`), empty string, over-length, and non-string input — not only the length check.
+- Assertions target the **contract**, never a dependency's internal formatting. Assert that formatting happened, that keywords are uppercased, that clauses are on separate lines — not the exact indent width a formatter version happens to emit. Pinning third-party output makes the suite red on a patch upgrade while product behavior is unchanged.
+- Deferred cleanup needs fake timers plus an explicit advance. A `setTimeout` that releases an object URL after `afterEach` ran leaks into the next test's global stub; see `tests/renderer/sql-io.test.ts`.
+- Pure test tasks must not touch product code. When a test exposes a product bug, record it in the task notes with severity and a reproduction path, and open a separate task. Mixing the fix in blurs the diff and skips its own acceptance review.
+- Fixtures use obviously fake credentials (`fake-*`); never a real host, password, or key.
+
+To prove a new assertion is not vacuous, mutate the product code it targets (make the check pass-through, or weaken a guard), confirm the suite goes red, then restore. A green-after-mutation test proves nothing.
+
 For UI, data-flow, clipboard, confirm-dialog, or download changes, use the trusted-input CDP procedure in [Frontend Quality Guidelines](../frontend/quality-guidelines.md#cdp-end-to-end-checks).
 
 ## Icons and Packaging
@@ -74,4 +89,5 @@ For UI, data-flow, clipboard, confirm-dialog, or download changes, use the trust
 - DBeaver topology export follows the [DBeaver Export Contract](./dbeaver-export.md): keep the exporter deterministic, validate the IPC boundary with the documented prefixes, and prove the topology-only/no-secret path with its focused tests and CDP save check.
 - Export paths go through `file.save` and report the real saved location; cancel is a non-error outcome, not a failure.
 - Regression tests cover the changed invariant; full typecheck, lint, test, and build pass.
+- Every feature or optimization landed with tests in `tests/`, asserting contracts rather than dependency internals (see Test Strategy).
 - `mysqldiff/` has no task-authored diff (compare with the task baseline because its standalone working tree may already be dirty), and generated `dist-*` / `release/` files were not edited.
