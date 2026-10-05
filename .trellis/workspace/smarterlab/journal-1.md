@@ -545,3 +545,31 @@ sql-linkage：`deriveSuggestedEdits`/`applySuggestedEdit` 纯函数 + executive"
 ### Status
 
 [OK] **Completed** — 三任务归档，723 项全绿
+
+
+## Session 22: 修复 scopes 空回落（静默越权）
+<!-- trellis-session: v=2 -->
+
+**Date**: 2026-10-05
+**Task**: `.trellis/tasks/archive/2026-10/10-05-scopes-empty-fallback-fix`
+**Branch**: `main`
+
+### Summary
+
+补测任务（session 21）暴露的 P1，本轮闭环。**只读工具里的静默越权**：用户取消勾选全部 4 个结构类型、只留「数据」，`normalizeScopes(['data'])` 因 `'data'` 非结构 ObjectType 被过滤成空数组，再走 `kept.length > 0 ? ... : ALL_SCOPES` 回落分支 → 四类结构全跑，而 UI 与 `lastComboText`（显示 `· /data`）都表现为只比数据，事后无从发现。
+
+修法（用户已定「数据单独对比合法」）：`normalizeScopes` 区分两种空——**显式空**（`[]` / 仅含 `'data'` 等词表 token）返回 `[]` 尊重用户；**无法解释**（`null`/非数组/全词表外垃圾）仍回落 `ALL_SCOPES`，IPC fail-safe 不因修复而退化。关键区分点是「raw 数组是否含至少一个已知 token」（`ALL_SCOPE_TOKENS`），不是「过滤后剩几个」——`['data']` 过滤后同样是空但表达合法意图。R3 同步修 `lastComboText` 的前导斜杠。
+
+**最有价值的一条**：这条 bug 正是「每个功能必须带测试」门禁的反向价值证明——`tests/core/compare-filter-scope.test.ts` 里那 9 项 `normalizeScopes` 对抗用例是它被发现的唯一途径。终审用 4 次变异测试自证断言非空转（恢复旧语义→7 项红、删 fail-safe→2 项红、判据放宽→2 项红、恢复旧文案→1 项红）。735 项全绿（+12）。
+
+**沉淀**：`database-guidelines.md` 新增「Scopes Normalization: Respect Selection, Keep Fail-Safe」章节（7 行输入→输出契约表 + 判据说明 + 下游安全性论证 + lastComboText 警告 + hasDataScope 分裂的 follow-up）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c135890` | fix(compare): 数据单独对比不再被静默放大为全结构对比 |
+
+### Status
+
+[OK] **Completed** — AC1–AC6 全达成，已归档
