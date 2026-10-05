@@ -8,6 +8,7 @@
 
 | 日期 | 任务 | 一句话 |
 |---|---|---|
+| 2026-10-05 | [contract-test-landing](./daily/2026-10-05_contract-test-landing.md) | 父任务集成复核：748 → 887 项（+139），产品代码零改动；规划期抓 5 处 spec 漂移，记录 generated DDL 未转义边界 |
 | 2026-10-05 | [export-e2e-landing](./daily/2026-10-05_export-e2e-landing.md) | 补齐 §11.1 保密硬边界断言（Preflight 四产物 + Manifest，全仓首次）+ 导出按钮真机 UI E2E；终审发现 Playwright trace 不掩码密码，已默认关 trace |
 | 2026-10-05 | [unit-test-gap-landing](./daily/2026-10-05_unit-test-gap-landing.md) | 补齐 9 个零直测导出（+122 项，748→870）：`escapeDataIdent` 注入防线、两个反序列化守卫判别矩阵；产品代码零改动。顺带发现生成的 ALTER 语句未转义（已知边界，不从不执行） |
 | 2026-10-05 | [e2e-env-readiness](./daily/2026-10-05_e2e-env-readiness.md) | preflight 真机 E2E 环境就绪：5.7 建 `sqldiff@%` 远程账号、dotenv 自动加载 `.env.e2e`、spec 去写死 IP、8.x 单机化；真机 5.7.44 + 8.0.46 四项全过 |
