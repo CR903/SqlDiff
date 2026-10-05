@@ -8,6 +8,7 @@
 
 | 日期 | 任务 | 一句话 |
 |---|---|---|
+| 2026-10-05 | [unit-test-gap-landing](./daily/2026-10-05_unit-test-gap-landing.md) | 补齐 9 个零直测导出（+122 项，748→870）：`escapeDataIdent` 注入防线、两个反序列化守卫判别矩阵；产品代码零改动。顺带发现生成的 ALTER 语句未转义（已知边界，不从不执行） |
 | 2026-10-05 | [e2e-env-readiness](./daily/2026-10-05_e2e-env-readiness.md) | preflight 真机 E2E 环境就绪：5.7 建 `sqldiff@%` 远程账号、dotenv 自动加载 `.env.e2e`、spec 去写死 IP、8.x 单机化；真机 5.7.44 + 8.0.46 四项全过 |
 | 2026-10-05 | [docs-spec-drift-cleanup](./daily/2026-10-05_docs-spec-drift-cleanup.md) | 清理 spec 里 9 处不存在的 `mysqldiff/` 引用；`docs/` 移出 `.gitignore`，建立四件套让 AGENTS.md 门禁可执行 |
 

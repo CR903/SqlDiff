@@ -103,4 +103,20 @@ When adding a second caller, send both fields as `store.ts` does. Collapsing `ha
 
 ## Schema Names and Identifiers
 
-SqlDiff does not rename tables or columns. Preserve names and case returned by MySQL, and compare them case-insensitively only where the existing filters explicitly do so. Executed queries use the escaping helpers above; generated structural DDL currently follows the legacy backtick interpolation in `src-core/diff.ts`. Database object ordering uses `localeCompare` plus the numeric `DiffItem.id` tie-breaker in `sortDiffItems`.
+SqlDiff does not rename tables or columns. Preserve names and case returned by MySQL, and compare them case-insensitively only where the existing filters explicitly do so. Database object ordering uses `localeCompare` plus the numeric `DiffItem.id` tie-breaker in `sortDiffItems`.
+
+### Two escaping paths, only one of them is hardened
+
+**Executed queries** go through the escaping helpers (`src-core/data-diff.ts`: `escapeDataIdent` for identifiers, `sqlLiteral` / `addslashes` for values). `escapeDataIdent` doubles backticks, so an identifier cannot escape its quoting.
+
+**Generated structural DDL** in `src-core/diff.ts` does **not** use those helpers. `diffTableField` interpolates raw:
+
+- table name: `` ALTER TABLE `${name}` `` — wrapped, but **not** backtick-doubled;
+- column names in `DROP COLUMN ${c}` / `CHANGE COLUMN ${c}` — **not quoted at all**;
+- column definitions (`${c1}`) come from `SHOW CREATE TABLE`, which already backtick-quotes them.
+
+**Mitigation that makes this a known boundary rather than an exploited hole**: the generated `diff.sql` is **never executed** by SqlDiff — it is display-and-copy only. This is a grep-enforced hard constraint (`pool.query(diff.sql)` / `pool.execute(diffItem.sql)` must not appear anywhere; see `preflight.md §11`). Verified: every `db.query(sql, params)` call in `src-main/` is a metadata read against `information_schema` / `SHOW ...`.
+
+**Residual risk that remains**: the string is **copy-pasteable** (`App.tsx` exposes a copy button). A table or column name crafted on the A-side database — e.g. a name containing a backtick followed by a statement — can produce a DDL text that is still syntactically valid when pasted into a MySQL client. So the trust boundary is the *user's paste*, not the app.
+
+**Do not "fix" this by silently switching to `escapeDataIdent`**: the output is byte-stable legacy behavior compared against the historical `mysqldiff` semantics, and the copy-paste contract is part of what reviewers rely on. Closing it means escaping + a version note on the generated DDL, which is a separate task. Until then, tests for `diffTableField` must **not** assert the escaping behavior as if it were guaranteed — assert only the diff semantics (see the `1..len-1` parse range in `tests/core/diff.test.ts`).

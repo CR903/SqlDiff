@@ -10,7 +10,7 @@
 
 | 地址 | 状态 | 结论 |
 |---|---|---|
-| `192.168.2.115` | `root/DB.smarterlab@2018` 直连 OK，**MySQL 8.0.46** | 保留，作 8.x 目标 |
+| `192.168.2.115` | `root/<用户指定的 DB 密码，不入库>` 直连 OK，**MySQL 8.0.46** | 保留，作 8.x 目标 |
 | `192.168.2.84` | `mysqld57` 服务 `active`，**MySQL 5.7.44**；但 `root` 只有 `root@localhost`，无 `root@%`，TCP 远程登录被拒 | 需建远程账号 |
 | `192.168.5.9` / `.15` | **TCP 3306 可连但 MySQL 握手 ETIMEDOUT**（历史记录里的 8.0.46 / 8.0.26） | 已废弃 |
 
@@ -25,13 +25,13 @@
 ## 用户决策
 
 - **D1**：`.env.e2e` **入库模板 + dotenv 自动加载**，让示例真正开箱即用
-- **D2**：5.7 远程账号**用用户给的密码** `DB.smarterlab@2018`
+- **D2**：5.7 远程账号**用用户给的密码** `<用户指定的 DB 密码，不入库>`
 - **D3**：8.x spec **改成单台 8.0.46**，删掉 8.0.26 describe
 - **D4**：IP 是虚拟机动态地址，**不得写死在代码默认值里**
 
 ## Requirements
 
-- [ ] R1 在 `192.168.2.84` 的 5.7 上建远程账号（用户名 `sqldiff`，密码 `DB.smarterlab@2018`，host `%`），授予 fixture 库 ALL + 全局 `SELECT, REPLICATION CLIENT, SUPER`（`SUPER` 是 `READ_ONLY_TARGET` 用例 `SET GLOBAL read_only` 所需）
+- [ ] R1 在 `192.168.2.84` 的 5.7 上建远程账号（用户名 `sqldiff`，密码 `<用户指定的 DB 密码，不入库>`，host `%`），授予 fixture 库 ALL + 全局 `SELECT, REPLICATION CLIENT, SUPER`（`SUPER` 是 `READ_ONLY_TARGET` 用例 `SET GLOBAL read_only` 所需）
 - [ ] R2 `dotenv` 提升为**显式 devDependency**（不从传递依赖借），在 `e2e/playwright.config.ts` 加载 `.env.e2e`；**已存在的 `process.env` 优先**，不覆盖外部传入值
 - [ ] R3 两个 spec **移除写死 IP 默认值**：host 缺失时 **skip 并给出可诊断原因**，不再静默连一个可能过期的地址
 - [ ] R4 8.x spec 删掉 8.0.26 describe 与对应 env 变量（`E2E_MYSQL_15_*`），只留 8.0.46 单机

@@ -1,7 +1,8 @@
 // M3 单测：隧道配置生成（host/port/user/auth）+ 端口随机 + 隧道复用/关闭。
 // 无需真实 DB/SSH：只覆盖纯函数与缓存逻辑；建连路径由手工冒烟覆盖。
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createConnection } from 'mysql2/promise';
 import {
   __testClearTunnels,
   __testRegisterTunnel,
@@ -15,6 +16,7 @@ import {
   RAND_PORT_MAX,
   RAND_PORT_MIN,
   resolveMysqlEndpoint,
+  testConnection,
   type TunnelEntry,
 } from '../../src-main/connection';
 import type { NodeMeta, SecretBundle } from '../../src-core/types';
@@ -154,5 +156,188 @@ describe('隧道复用 Map', () => {
     await closeTunnel('a'); // 重复关不抛
     await closeAll();
     expect(listTunnels()).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// testConnection —— 连接冒烟（10-05-unit-test-gap-landing R5）
+//
+// 契约：永不 throw，失败以 {ok:false, code, message} 返回（UI 直接展示）。
+// 覆盖成功 + 失败路径，并锁住「ConnectionError 的 code 原样透传」——
+// 这是 UI 区分「密码错」与「网络不通」的依据，吞掉就退化成一句无信息的报错。
+//
+// mock 纪律：mysql2/promise 的 createConnection 被模块级 mock 替换，
+// 绝不真实 TCP 连接（会慢、不稳定，且可能真去连 .env.e2e 里的机器）。
+// ---------------------------------------------------------------------------
+
+vi.mock('mysql2/promise', () => ({
+  createConnection: vi.fn(),
+  createPool: vi.fn(),
+}));
+
+// ssh2 一并 mock：ensureTunnel 会真去拨号，不 mock 会拖慢测试并真的连出去。
+// Client 构造后 connect() 立刻 emit 'error'，模拟握手失败。
+vi.mock('ssh2', () => ({
+  Client: class {
+    private readonly handlers: Record<string, ((arg?: unknown) => void)[]> = {};
+    once(event: string, cb: (arg?: unknown) => void): this {
+      (this.handlers[event] ??= []).push(cb);
+      return this;
+    }
+    connect(): this {
+      queueMicrotask(() => {
+        for (const cb of this.handlers.error ?? []) cb(new Error('mock ssh handshake refused'));
+      });
+      return this;
+    }
+    end(): void {
+      /* 忽略 */
+    }
+  },
+}));
+
+/** 构造一个行为可控的假连接对象。 */
+function fakeConn(opts: { query?: () => Promise<unknown>; end?: () => Promise<unknown> } = {}): {
+  query: ReturnType<typeof vi.fn>;
+  end: ReturnType<typeof vi.fn>;
+} {
+  return {
+    query: vi.fn(opts.query ?? (() => Promise.resolve([[{ 1: 1 }]]))),
+    end: vi.fn(opts.end ?? (() => Promise.resolve(undefined))),
+  };
+}
+
+describe('testConnection', () => {
+  beforeEach(() => {
+    __testClearTunnels();
+    vi.mocked(createConnection).mockReset();
+  });
+
+  afterEach(() => {
+    __testClearTunnels();
+  });
+
+  it('直连成功 → ok:true，带 ms，不含 code', async () => {
+    const conn = fakeConn();
+    vi.mocked(createConnection).mockResolvedValue(conn as never);
+    const r = await testConnection(baseNode({ host: '10.0.0.5' }), { password: 'pw' });
+    expect(r.ok).toBe(true);
+    expect(typeof r.ms).toBe('number');
+    expect(r.ms).toBeGreaterThanOrEqual(0);
+    expect(r.code).toBeUndefined();
+  });
+
+  it('直连成功时执行的是 SELECT 1，且连接被关闭（无连接泄漏）', async () => {
+    const conn = fakeConn();
+    vi.mocked(createConnection).mockResolvedValue(conn as never);
+    await testConnection(baseNode({ host: '10.0.0.5' }), {});
+    expect(conn.query).toHaveBeenCalledWith('SELECT 1');
+    expect(conn.end).toHaveBeenCalledTimes(1);
+  });
+
+  it('连接失败 → ok:false，code=MYSQL_CONNECT，不 throw', async () => {
+    vi.mocked(createConnection).mockRejectedValue(new Error('ECONNREFUSED') as never);
+    const r = await testConnection(baseNode({ host: '10.0.0.5' }), {});
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe('MYSQL_CONNECT');
+    expect(r.message).toContain('ECONNREFUSED');
+    expect(typeof r.ms).toBe('number');
+  });
+
+  it('查询失败 → code 仍为 MYSQL_CONNECT，且连接被关闭', async () => {
+    const conn = fakeConn({ query: () => Promise.reject(new Error('ER_ACCESS_DENIED')) });
+    vi.mocked(createConnection).mockResolvedValue(conn as never);
+    const r = await testConnection(baseNode({ host: '10.0.0.5' }), {});
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe('MYSQL_CONNECT');
+    expect(r.message).toContain('ER_ACCESS_DENIED');
+    expect(conn.end).toHaveBeenCalledTimes(1);
+  });
+
+  it('conn.end 抛错不掩盖原始失败结果（cleanup 不吞 verdict）', async () => {
+    const conn = fakeConn({
+      query: () => Promise.reject(new Error('ER_ACCESS_DENIED')),
+      end: () => Promise.reject(new Error('close boom')),
+    });
+    vi.mocked(createConnection).mockResolvedValue(conn as never);
+    const r = await testConnection(baseNode({ host: '10.0.0.5' }), {});
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('ER_ACCESS_DENIED');
+    expect(r.message).not.toContain('close boom');
+  });
+
+  it('createConnection 抛非 Error 值 → 仍被 Error 化并归 MYSQL_CONNECT', async () => {
+    vi.mocked(createConnection).mockImplementation((): never => {
+      // 故意抛非 Error 值，验证 testConnection 把任意抛出值归一为结构化结果
+      throw 'plain string failure';
+    });
+    const r = await testConnection(baseNode({ host: '10.0.0.5' }), {});
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe('MYSQL_CONNECT');
+    expect(r.message).toContain('plain string failure');
+  });
+
+  it('ssh 配置非法（enabled 但缺 ssh.host）→ SSH_CONFIG，且不建连', async () => {
+    const node = baseNode({
+      ssh: { enabled: true, host: '', port: 22, user: 'u', authType: 'password' },
+    });
+    const r = await testConnection(node, {});
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe('SSH_CONFIG');
+    expect(createConnection).not.toHaveBeenCalled();
+  });
+
+  it('节点缺 host → BAD_NODE，且不建连（validateNode 前置）', async () => {
+    const r = await testConnection(baseNode({ host: '' }), {});
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe('BAD_NODE');
+    expect(createConnection).not.toHaveBeenCalled();
+  });
+
+  it('节点缺 user / database → BAD_NODE，不建连', async () => {
+    expect((await testConnection(baseNode({ user: '' }), {})).code).toBe('BAD_NODE');
+    expect((await testConnection(baseNode({ database: '' }), {})).code).toBe('BAD_NODE');
+    expect(createConnection).not.toHaveBeenCalled();
+  });
+
+  it('SSH 握手失败 → ok:false，code=SSH_CONNECT，不 throw', async () => {
+    const node = baseNode({
+      ssh: { enabled: true, host: 'ssh.invalid', port: 22, user: 'u', authType: 'password' },
+    });
+    const r = await testConnection(node, {}).catch((e: unknown) => e);
+    expect(r).toBeTypeOf('object');
+    expect(r).not.toBeNull();
+    const res = r as { ok: boolean; ms: number; code?: string; message?: string };
+    expect(res.ok).toBe(false);
+    expect(res.code).toBe('SSH_CONNECT');
+    expect(res.message).toContain('mock ssh handshake refused');
+    expect(createConnection).not.toHaveBeenCalled();
+  });
+
+  it('SSH 节点命中缓存隧道 → 走本地端口，且隧道保留复用（不关）', async () => {
+    const entry = fakeTunnel(33455);
+    __testRegisterTunnel('n1', entry);
+    const conn = fakeConn();
+    vi.mocked(createConnection).mockResolvedValue(conn as never);
+    const node = baseNode({
+      ssh: { enabled: true, host: 'h', port: 22, user: 'u', authType: 'password' },
+    });
+    const r = await testConnection(node, {});
+    expect(r.ok).toBe(true);
+    expect(vi.mocked(createConnection).mock.calls[0][0]).toMatchObject({
+      host: '127.0.0.1',
+      port: 33455,
+    });
+    // 隧道保留复用：testConnection 不关缓存隧道
+    expect(listTunnels()).toEqual([{ nodeId: 'n1', localPort: 33455 }]);
+  });
+
+  it('ssh.enabled=false 时走直连（不建隧道）', async () => {
+    const conn = fakeConn();
+    vi.mocked(createConnection).mockResolvedValue(conn as never);
+    const r = await testConnection(baseNode({ ssh: { enabled: false, host: 'x', port: 22, user: 'u', authType: 'password' } }), {});
+    expect(r.ok).toBe(true);
+    expect(listTunnels()).toEqual([]);
+    expect(vi.mocked(createConnection).mock.calls[0][0]).toMatchObject({ host: 'db.internal' });
   });
 });

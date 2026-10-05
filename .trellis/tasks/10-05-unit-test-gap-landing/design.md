@@ -11,7 +11,7 @@
 | `escapeDataIdent` | `tests/core/data-diff.test.ts`（**追加**） | 同文件其余 4 个导出已在此测，追加保持内聚 |
 | `diffTableField` | `tests/core/diff.test.ts`（追加） | 同上，`diffTable` 已在其中 |
 | `isNodeMeta` / `isHistoryEntry` / `nodesFilePath` / `historyFilePath` / `resolveUserDataDir` / `clearHistory` | `tests/main/store-json.test.ts`（**新建**） | 现有测试都经 `loadNodes`/`loadHistory` 等间接触达，无专门测该文件的用例 |
-| `testConnection` | `tests/main/connection.test.ts`（**新建**） | 同理 |
+| `testConnection` | `tests/main/connection.test.ts`（**追加**） | 该文件已存在且覆盖隧道配置/端口/缓存，直接追加而非新建 |
 
 ## 三类契约测试的写法
 
@@ -28,7 +28,9 @@
 或更实用：``a`b`` → 输出应为 `` `a``b` ``，且 `` `` `` 的数量 === 输入反引号数量 × 2
 ```
 
-理由：字符串等值会把测试绑死在"用反引号包裹"这个实现选择上。将来若改用 ANSI 双引号包裹（另一种合法转义方案），等值断言会假红，而逃逸判定仍然成立——**它测的是安全性质，不是实现细节**。
+理由：字符串等值会把测试绑死在"用反引号包裹"这个实现选择上。将来若换一种**仍然合法**的标识符引号写法，等值断言会假红，而逃逸判定仍然成立——**它测的是安全性质，不是实现细节**。
+
+> **check 阶段补充**：本节原举例"改用 ANSI 双引号包裹也是合法方案"，这个前提不成立——`"` 只有在 `ANSI_QUOTES` 模式下才引号化标识符，而该模式默认关闭；非 ANSI_QUOTES 下 `"a"` 是字符串字面量。因此 `unwrapIdent` helper **刻意锁死反引号**，且不该放宽成"反引号或双引号都算过"（那会放进一个真错误的实现）。已把该判断写进 `tests/core/data-diff.test.ts` 的文件头注释，避免后人误当成遗漏去"修正"。
 
 必须覆盖的输入：
 
@@ -48,7 +50,7 @@
 
 矩阵的构造方式：取一个全字段合法的基准对象，**逐个字段**做三态变异（删除 / 类型错 / 值为空），每态一条用例；再加四条结构性用例（非对象 / `null` / 数组 / 嵌套错误）。
 
-`isNodeMeta` 的 9 个字段：`id`（string 且 `length > 0`）、`alias`、`host`、`user`、`database`、`port`（number）、`createdAt`、`ssh`（必须是 record）。
+`isNodeMeta` 的 **8** 个判别字段：`id`（string 且 `length > 0`）、`alias`、`host`、`user`、`database`、`port`（number）、`createdAt`、`ssh`（必须是 record）。`NodeMeta` 上另有 `group`/`tags`/`star`/`pinned`/`useCount` 五个**可选**字段，不参与判别（守卫不是白名单，需另配一条"额外字段被忽略"用例）。
 
 特别值得单独覆盖的两条：
 - `id: ''` —— 唯一有 `length > 0` 约束的字段，最容易被漏测
@@ -68,7 +70,7 @@
 
 注意这几个函数**接受可选参数**（`userDataDir?`），所以要覆盖"不传参时读环境变量"这条路径。测试用 `vi.stubEnv` 隔离环境，避免受开发者本机环境影响——这正是它们需要直测的原因：`resolveUserDataDir` 的环境变量优先级如果写反，E2E 会把节点写到错误的目录，而任何现有断言都不会发现。
 
-`clearHistory` 覆盖两条：文件存在 → 删除；文件不存在 → **不抛**（幂等）。
+`clearHistory` 覆盖两条：**文件存在 → 写空数组**（`store-json.ts:122-124`，不是删文件）；文件不存在 → **不抛**（幂等，且顺带建目录）。判别口径用"读回为空"而非"文件是否还在"，这样断言的是调用方可观察的语义。
 
 ## 变异测试自证（AC7）
 

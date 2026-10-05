@@ -7,6 +7,7 @@ import {
   changeProcedure,
   diffProcedure,
   diffTable,
+  diffTableField,
   filterField,
   filterProcedure,
   filterTable,
@@ -287,5 +288,102 @@ describe('compareRun 组装/统计/排序', () => {
     expect(sql).toContain('A(来源): A库');
     expect(sql).toContain('B(目标): B库');
     expect(sql).toContain('CREATE TABLE `users`');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// diffTableField 畸形输入边界（10-05-unit-test-gap-landing R6）
+//
+// 核心 diff 引擎，经 diffTable 间接覆盖；但**解析边界**（畸形 DDL / 空输入）
+// 间接覆盖不到 —— diffTable 先过 asText + filterTable，早退化掉了。
+// 刻意不补大而全的 DDL 语料：17 种 DdlOp 已由 classifyDdl 的测试覆盖，
+// 那属于"追认历史覆盖"，是本仓库明确排除的低价值工作。
+// 这里只锁一条：**畸形输入不抛，且返回可解析结果**。
+// ---------------------------------------------------------------------------
+
+describe('diffTableField 畸形输入不抛', () => {
+  const T_MIN = ['CREATE TABLE `t` (', '  `id` int NOT NULL', ') ENGINE=InnoDB'].join('\n');
+  const T_MIN_EXTRA = ['CREATE TABLE `t` (', '  `id` int NOT NULL', '  `v` varchar(8)', ')'].join('\n');
+
+  it('两侧全空串 → 返回空串', () => {
+    expect(diffTableField('t', '', '')).toBe('');
+  });
+
+  it('一侧空串（少于 3 行）→ 返回空串，不抛', () => {
+    expect(diffTableField('t', T_MIN, '')).toBe('');
+    expect(diffTableField('t', '', T_MIN)).toBe('');
+  });
+
+  it('纯空白输入 → 不抛且返回字符串', () => {
+    const ws = '   \n\t\n  ';
+    const out = diffTableField('t', ws, ws);
+    expect(typeof out).toBe('string');
+    expect(out).toBe('');
+  });
+
+  it('非 DDL 纯文本（无反引号行）→ 返回空串（识别不出列即无差异）', () => {
+    const junk = 'hello world\nsecond line\nthird line';
+    const out = diffTableField('t', junk, junk);
+    expect(typeof out).toBe('string');
+    expect(out).toBe('');
+  });
+
+  it('非 DDL 纯文本 vs 合法 DDL → 仍不抛，返回字符串', () => {
+    const junk = 'hello world\nsecond line\nthird line';
+    const out = diffTableField('t', junk, T_MIN);
+    expect(typeof out).toBe('string');
+    expect(out).toContain('ALTER TABLE');
+  });
+
+  it('残缺 SHOW CREATE（缺 ENGINE / 右括号行）→ 可解析出列差异', () => {
+    const out = diffTableField('t', T_MIN_EXTRA, T_MIN);
+    expect(typeof out).toBe('string');
+    // 方向语义：t1=A（来源）、t2=B（待升级）→ t1 多出的列在 B 侧为 ADD
+    expect(out).toContain('ALTER TABLE `t` ADD COLUMN `v` varchar(8)');
+  });
+
+  it('残缺输入（仅 CREATE 头 + 右括号）vs 合法 DDL → 不抛', () => {
+    const stub = ['CREATE TABLE `t` (', ')'].join('\n');
+    expect(() => diffTableField('t', stub, T_MIN)).not.toThrow();
+    expect(typeof diffTableField('t', stub, T_MIN)).toBe('string');
+  });
+
+  it('缺 CREATE 头 → 首行内容不参与解析，不抛且返回字符串', () => {
+    // 循环范围是 1..len-1（首行 CREATE 头、末行右括号均不解析）。
+    // 首行换成注释后，`id` 仍落在可解析区 → 与 T_MIN 无差异 → 空串。
+    const headerless = ['-- 缺 CREATE 头', '  `id` int NOT NULL', '  `v` varchar(8)'].join('\n');
+    const out = diffTableField('t', headerless, T_MIN);
+    expect(typeof out).toBe('string');
+    expect(out).toBe('');
+  });
+
+  it('缺 CREATE 头但第 1 行有差异列 → 仍能生成 ALTER（证明解析不依赖首行形态）', () => {
+    const headerless = ['-- 缺 CREATE 头', '  `v` varchar(8)', '  `w` int'].join('\n');
+    const out = diffTableField('t', headerless, T_MIN);
+    expect(typeof out).toBe('string');
+    expect(out).toContain('ALTER TABLE `t` ADD COLUMN `v` varchar(8)');
+  });
+
+  it('仅两行（无列定义行）→ 少于 3 行直接返回空串', () => {
+    expect(diffTableField('t', '`id` int NOT NULL\n`v` varchar(8)', T_MIN)).toBe('');
+  });
+
+  it('列定义行以逗号结尾 / 缺逗号混合 → 不抛', () => {
+    const mixed = ['CREATE TABLE `t` (', '  `id` int NOT NULL', '  `v` varchar(8),', ')'].join('\n');
+    expect(() => diffTableField('t', mixed, T_MIN)).not.toThrow();
+    expect(typeof diffTableField('t', mixed, T_MIN)).toBe('string');
+  });
+
+  it('两侧相同的畸形输入 → 返回空串（无差异）', () => {
+    expect(diffTableField('t', T_MIN, T_MIN)).toBe('');
+  });
+
+  it('表名为空串 → 不抛，语句仍以空名生成', () => {
+    expect(() => diffTableField('', T_MIN_EXTRA, T_MIN)).not.toThrow();
+    expect(typeof diffTableField('', T_MIN_EXTRA, T_MIN)).toBe('string');
+  });
+
+  it('表名含反引号（与 escapeDataIdent 不同：此处是 legacy 插值）→ 不抛', () => {
+    expect(() => diffTableField('we`ird', T_MIN_EXTRA, T_MIN)).not.toThrow();
   });
 });
