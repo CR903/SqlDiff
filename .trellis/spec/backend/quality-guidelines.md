@@ -23,7 +23,6 @@ Use focused tests while iterating, for example `npm test -- tests/core/diff.test
 - Validate IPC, imported JSON, and persisted records at runtime. Keep `assertSafeNodeId`, `assertNonEmpty`, `normalizePort`, `isNodeMeta`, and `Vault.importDecrypted` checks at their boundaries.
 - Escape identifiers in executed MySQL queries and parameterize values. Follow `escapeIdent`, `escapeDataIdent`, and `fetchPageByPK`; see [Database Guidelines](./database-guidelines.md). Generated structural DDL in `src-core/diff.ts` currently follows the legacy backtick interpolation, so hardening that output is a separate product/security change.
 - Do not add a path that executes generated `DiffItem.sql`. The product is a read-only comparison tool.
-- Keep `mysqldiff/` unchanged. Compatibility work belongs in `src-core` and must be justified by a test against current behavior or an approved product decision.
 
 ## Comparison Invariants
 
@@ -90,4 +89,4 @@ For UI, data-flow, clipboard, confirm-dialog, or download changes, use the trust
 - Export paths go through `file.save` and report the real saved location; cancel is a non-error outcome, not a failure.
 - Regression tests cover the changed invariant; full typecheck, lint, test, and build pass.
 - Every feature or optimization landed with tests in `tests/`, asserting contracts rather than dependency internals (see Test Strategy).
-- `mysqldiff/` has no task-authored diff (compare with the task baseline because its standalone working tree may already be dirty), and generated `dist-*` / `release/` files were not edited.
+- Generated `dist-*` / `release/` files were not edited.

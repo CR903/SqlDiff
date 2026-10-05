@@ -449,7 +449,6 @@ Markdown 表格单元格中的 `|` 用 `\|` 转义（`mdCell`）。
 | 多目标并行 preflight | v1 只支持单目标 |
 | 自动判定「允许发布 / 阻断发布」 | Preflight 只给建议 `verdict`，不做硬阻断 |
 | 自动执行、写库、托管凭据、调度 | 明确不做 |
-| `mysqldiff/` 改动 | 保持不动 |
 
 ### 11.1 保密边界
 
@@ -686,7 +685,7 @@ report → deriveSuggestedEdits → 预览 diff（原文 → 建议）→ window
 
 ### 16.5 边界与回滚
 
-- 无 schema 变更（`summary` 保持轻量，Q1 结论不变）；`mysqldiff/` 未改；
+- 无 schema 变更（`summary` 保持轻量，Q1 结论不变）；
 - 只读边界不变：改的是用户本地待导出文本，不是线上执行；`preflight-run.ts` / IPC / `store-json.ts` 不动；
 - 回滚：revert `preflight.ts` 尾部联动块 + executive 插入 3 行 + `App.tsx` 联动块，报告与导出退回无建议态。
 
@@ -776,6 +775,6 @@ interface PreflightDiff {
 
 ### 17.8 回滚
 
-- 删 `preflight-history.json` 即清空历史，无迁移脚本；`mysqldiff/` 未改；
+- 删 `preflight-history.json` 即清空历史，无迁移脚本；
 - 回滚路径：revert `preflight-run.ts` 阶段 7b + IPC 三通道 + `App.tsx` 4 处加法，
   其余新文件留存但不被调用。

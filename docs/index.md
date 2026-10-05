@@ -1,0 +1,24 @@
+# 开发日志索引
+
+唯一索引。每篇 `docs/daily/*.md` 在此占一行，按年月分表格，最近在前。
+
+用法说明见 [`README.md`](./README.md)，日志模板见 [`template.md`](./template.md)。
+
+## 2026-10
+
+| 日期 | 任务 | 一句话 |
+|---|---|---|
+| 2026-10-05 | [docs-spec-drift-cleanup](./daily/2026-10-05_docs-spec-drift-cleanup.md) | 清理 spec 里 9 处不存在的 `mysqldiff/` 引用；`docs/` 移出 `.gitignore`，建立四件套让 AGENTS.md 门禁可执行 |
+
+## 2026-09
+
+暂无（此前任务只记 `.trellis/workspace/*/journal-*.md`，按 R9 不追溯补写）
+
+## 其他文档
+
+| 文件 | 内容 |
+|---|---|
+| [plan.md](./plan.md) | 产品规划 |
+| [README.md](./README.md) | docs 使用指南与门禁说明 |
+| [template.md](./template.md) | 任务日志模板 |
+| [knowledge/index.md](./knowledge/index.md) | 可复用知识沉淀 |

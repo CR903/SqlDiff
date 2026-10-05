@@ -57,7 +57,6 @@ apps/desktop/
 
 ## Reference-Only Areas
 
-- `mysqldiff/` is the read-only legacy CLI. Its `DB.js`, `Tools.js`, and `mysqldiff` script define compatibility behavior referenced by comments and tests, but product changes belong under `apps/desktop/`.
 - `apps/desktop-mock/index.html` is an interaction reference for the three-pane layout. Do not make it the source of business behavior or modify it to fix a production bug.
 - `dist-main/`, `dist-renderer/`, and `release/` are generated and gitignored. Source maps and packaged output are not edit points.
 

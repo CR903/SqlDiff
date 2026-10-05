@@ -46,7 +46,7 @@ Manifest build and serialization run entirely in the renderer as pure functions.
 - **No rollback / explain**: `ReviewManifestItem` deliberately omits both. Achieved by not copying the fields, never by copy-then-delete.
 - **Secret boundary**: manifest JSON/Markdown must never contain `password`, `sshPassword`, `privateKey`, `passphrase`, `vaultCiphertext`, `userPassword`, `SecretBundle`, or connection strings. `redactDmlSql` is applied inside `serializeManifest` / `manifestToMarkdown` to `objectType === 'data'` items only. The in-memory manifest keeps original SQL because the renderer already owns the real DML for the data panel; the downloaded artifacts are redacted.
 - **Filename**: `sqldiff-review-<exportedAt with : and . replaced by ->.json` / `.md`, e.g. `sqldiff-review-2026-09-30T10-00-00-000Z.json`. Both files are written in one call through `saveTextFiles` (`kind: 'bundle'`), which prompts for a single directory instead of two consecutive save dialogs.
-- **No execution entry**: manifest modules never call a pool, never execute SQL, and never touch Vault. `mysqldiff/` is untouched.
+- **No execution entry**: manifest modules never call a pool, never execute SQL, and never touch Vault.
 
 ## 4. CoverageStatus Mapping
 
@@ -157,6 +157,6 @@ if (outcome.status === 'canceled') return;
 
 - Manifest 不读取 PreflightReport，也不调用 preflight 采集；
 - PreflightReport 不引用 ReviewManifest 的字段，也不从 manifest 派生任何值；
-- 两个模块都不新增 SQL 执行入口、都不动 `mysqldiff/`。
+- 两个模块都不新增 SQL 执行入口。
 
 完整 Preflight 契约见 [Preflight Contract](./preflight.md)。
