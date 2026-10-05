@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "测试门禁：每功能必带测试、变异测试自证断言非空转"}
+{"file": ".trellis/spec/backend/preflight.md", "reason": "§10 序列化与导出（3 文件）、§11 硬边界与 §11.1 保密边界、§8 IPC 契约"}
+{"file": ".trellis/spec/backend/e2e-harness.md", "reason": "E2E harness：env 门控约定、skip 消息点名变量、cleanup 约定"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "line 69 明确要求补的 Preflight/Manifest 导出 E2E 断言清单"}
+{"file": ".trellis/spec/backend/manifest-export.md", "reason": "Manifest 导出契约与审查报告文件命名"}

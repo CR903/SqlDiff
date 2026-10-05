@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "测试门禁：每功能必带测试、变异测试自证断言非空转"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "data-diff 标识符转义与 SQL 生成契约"}
+{"file": ".trellis/spec/backend/preflight.md", "reason": "§8 IPC 契约：isHistoryEntry 被 main.ts 直接 import 做入口校验"}

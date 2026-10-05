@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/preflight.md", "reason": "check：§11.1 保密断言是否覆盖值泄漏；导出 3 文件口径"}
+{"file": ".trellis/spec/backend/e2e-harness.md", "reason": "check：E2E 路径/命令/env 门控与真实文件一致"}

@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "check：标识符转义断言是否为真契约而非实现等值"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "check：变异测试自证断言非空转"}
