@@ -510,3 +510,38 @@ sql-linkage：`deriveSuggestedEdits`/`applySuggestedEdit` 纯函数 + executive"
 ### Status
 
 [OK] **Completed** — 双子 AC 全达成，父任务集成复核通过，已归档
+
+
+## Session 21: 测试迁入 tests/ + 补齐历史功能缺口
+<!-- trellis-session: v=2 -->
+
+**Date**: 2026-10-05
+**Tasks**: `10-04-test-backfill`（父）+ `10-04-tests-migration` + `10-04-test-gap-backfill`
+**Branch**: `main`
+
+### Summary
+
+用户定规则：每个功能/优化必须带测试用例，统一放 tests/ 目录。两个里程碑：
+
+**M1 迁移**（`068c88b`）：41 个 co-located `*.test.ts` 用 `git mv` 迁入 `tests/{core,main,converters,renderer}/`，vitest include 改 `tests/**/*.test.ts`，两个 tsconfig 同步覆盖 tests。650 项零回归，断言零改动（diff 除 import 外空）。终审另修 4 处 spec 旧测试路径（含一个指向已删文件的历史错误）。
+
+**M2 补测**：代码面 grep 扫描出 18 个零/弱覆盖导出函数，新建 7 个文件 **+73 项**（650→723）。重点：`assertSafeNodeId` 六种穿越形态 + AES-GCM 往返/篡改/错密钥；`normalizeScopes` 非法输入降级；sql-io 22 项用 `vi.stubGlobal` mock 浏览器 API（零新依赖）。终审用变异测试实证断言非空转，并把一处绑定 sql-formatter 排版的脆弱断言改为断言契约。
+
+**沉淀**：`quality-guidelines.md` 新增「每个功能与优化必须带测试」门禁（含安全原语需对抗用例、断言契约而非依赖内部、定时器需 fake timers、纯测试任务不改产品码、变异测试自证非空断言），并入 Review Checklist。
+
+**顺带**：`.gitignore` 加 `.mnemon/`（终审发现归档时 `git add -A` 会误提交 512KB sqlite）。
+
+### 产品问题（按纯测试任务约束只记录未修）
+
+**P1** `normalizeScopes(['data'])` 静默回落四类结构全开——UI 可达（`store.ts:609`）：取消勾选全部结构类型 + 只勾数据对比 → 用户没勾的结构对比被静默跑完。建议区分「结构项全非法」与「仅 data」。另 3 条 P3/记录：rollbackFor 的 undefined 路径不可达（JSDoc 与实现不符）、formatSqlSafe catch 分支不可达、resolveDataPairs 按表名存在性配对含 null 值。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `068c88b` | refactor(tests): 测试统一迁入 tests/ 目录（41 文件，650 项零回归） |
+| TBD | test: 补齐历史功能测试缺口（+73 项，覆盖 18 个零覆盖函数） |
+
+### Status
+
+[OK] **Completed** — 三任务归档，723 项全绿
