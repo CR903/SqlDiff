@@ -624,3 +624,25 @@ sql-linkage：`deriveSuggestedEdits`/`applySuggestedEdit` 纯函数 + executive"
 ### Status
 
 [OK] **Completed**
+
+
+## Session 25: 补齐 9 个零直测导出的契约测试
+<!-- trellis-session: v=2 fp=f366b2ea85388dbf -->
+
+**Date**: 2026-10-05
+**Task**: 补齐 9 个零直测导出的契约测试
+**Branch**: `main`
+
+### Summary
+
+给 9 个「有实现、有内部调用、但 tests/ 里一次都没被提及」的导出函数补上直接契约测试，748 → 870 项（+122），产品代码零改动。高危三个：escapeDataIdent（注释明写「表名/列名进 SQL 前必经此函数」，同文件其余 4 个导出都有直测唯独漏它）、isHistoryEntry（被 main.ts:23 直接 import 走 IPC）、isNodeMeta（8 字段反序列化守卫）。断言刻意避开两个陷阱：一是 escapeDataIdent 不写字符串等值而写逃逸判定与量化契约，等值会把测试绑死在「用反引号包裹」这个实现选择上；终审进一步论证反引号锁定是刻意的——ANSI_QUOTES 默认关闭时双引号里的标识符是字符串字面量，放宽断言等于给真错误的实现发通行证。二是守卫用逐字段判别矩阵而非快照，因为守卫的职责是在 IPC/文件边界挡坏数据。变异测试三次全部自证先见红（实现方 + 终审 + 主会话各独立复现一遍）。勘误三处 PRD 事实错误——写 PRD 时未读实现凭印象填，全错：clearHistory 是写空数组非删文件、isNodeMeta 是 8 字段非 9、diffTableField 解析范围 1..len-1；实现方按实现锁契约并就地改正文档，终审独立复核确认「文档错、实现对」。重要发现：src-core/diff.ts 零 import，生成的 ALTER 语句裸插值，DROP/CHANGE 的列名连反引号都没有；缓解约束成立（diff.sql 从不执行，grep 硬约束）但字符串可复制粘贴，信任边界在用户的粘贴。已写入 database-guidelines.md 新章节并标注不要顺手改成 escapeDataIdent——输出是与历史 mysqldiff 语义对齐的 byte 稳定行为。知识沉淀：assertion-and-doc-fidelity.md（文档事实断言先读实现、安全断言的等价类别乱放宽、守卫测试打判别矩阵）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7975810` | test: 补齐 9 个零直测导出的契约测试（+122 项，产品代码零改动） |
+
+### Status
+
+[OK] **Completed**

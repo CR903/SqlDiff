@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 24
+- **Total Sessions**: 25
 - **Last Active**: 2026-10-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~626 | Active |
+| `journal-1.md` | ~648 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 25 | 2026-10-05 | 补齐 9 个零直测导出的契约测试 | `7975810` | `main` |
 | 24 | 2026-10-05 | 5.7 真机 E2E 环境就绪 + dotenv 自动加载 | `da533e2`, `c99c792` | `main` |
 | 17 | 2026-10-04 | UI 徽标三态同步（GO/DEGRADED/BLOCK） | `04c529f` | `main` |
 | 15 | 2026-10-03 | Preflight E2E on real MySQL 8.x — dual version matrix | `e7e10b8` | `main` |
