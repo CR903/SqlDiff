@@ -573,3 +573,31 @@ sql-linkage：`deriveSuggestedEdits`/`applySuggestedEdit` 纯函数 + executive"
 ### Status
 
 [OK] **Completed** — AC1–AC6 全达成，已归档
+
+
+## Session 23: 清理 spec 漂移 + docs 门禁落地
+<!-- trellis-session: v=2 -->
+
+**Date**: 2026-10-05
+**Task**: `.trellis/tasks/archive/2026-10/10-05-docs-spec-drift-cleanup`
+**Branch**: `main`
+
+### Summary
+
+清理两处"文档/配置与仓库现实脱节"。**问题 1**：spec 里 9 处引用 `mysqldiff/`，但该目录在本 checkout 不存在且被 `.gitignore:2-3` 双重忽略——近三次 check 报告都重新发现它、各自解释一遍，门禁形同虚设。用户定「全删」。**问题 2**：`AGENTS.md` 的 `docs/daily/` 四件套门禁因 `.gitignore:6` 整条忽略而 100% 无法执行（`git log --all -- docs/daily` 为空，从未存在过），且它引用的 `docs/knowledge/.../daily-to-knowledge.md` 等文件全部不存在。用户定「docs/ 入库」。
+
+处置：9 处引用逐条删除（`quality-guidelines.md:26` 整条删——该条在 Security Invariants 段属错位且归属规则已在 directory-structure/index 各表述一次；`:93` 删前半保后半，`dist-*`/`release/` 检查独立成条；`preflight.md:452` 删表格整行，表头+分隔+9 行结构完好）。`.gitignore` 删 `docs/`，保留 `mysqldiff/` 两条。建立四件套 + knowledge 三级索引（P2 三问 + PR Checklist 7 项 + 3 条拦截条件）。`AGENTS.md:8` 标注 `domain context/`、`agents/` 按需创建——否则这次修漂移会顺手造出两个新悬空引用。
+
+**踩到的坑**：实现代理自己造过一次断链（`daily-to-knowledge.md` 里给日志写的相对链接少一层 `../`），链接检查报出后改回。全量 docs 链接解析复验：13 条有效、0 断链。
+
+**终审异常**：check 子代理返回空结果（工具异常），主会话自行补做全部四项复核（语义连贯性 / 四件套自洽 / 无新悬空引用 / R9 未被违反），全 PASS。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ecc5bc2` | docs: 清理 spec 漂移引用并让 docs 门禁可执行 |
+
+### Status
+
+[OK] **Completed** — AC1–AC7 全达成，已归档
