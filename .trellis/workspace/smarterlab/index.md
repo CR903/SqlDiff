@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 25
+- **Total Sessions**: 26
 - **Last Active**: 2026-10-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~648 | Active |
+| `journal-1.md` | ~671 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 26 | 2026-10-05 | 契约落地：补齐已声明但未兑现的测试（父 + 二子任务） | `7975810`, `ae54fe4` | `main` |
 | 25 | 2026-10-05 | 补齐 9 个零直测导出的契约测试 | `7975810` | `main` |
 | 24 | 2026-10-05 | 5.7 真机 E2E 环境就绪 + dotenv 自动加载 | `da533e2`, `c99c792` | `main` |
 | 17 | 2026-10-04 | UI 徽标三态同步（GO/DEGRADED/BLOCK） | `04c529f` | `main` |

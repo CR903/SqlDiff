@@ -646,3 +646,26 @@ sql-linkage：`deriveSuggestedEdits`/`applySuggestedEdit` 纯函数 + executive"
 ### Status
 
 [OK] **Completed**
+
+
+## Session 26: 契约落地：补齐已声明但未兑现的测试（父 + 二子任务）
+<!-- trellis-session: v=2 fp=affafab4ae936d30 -->
+
+**Date**: 2026-10-05
+**Task**: 契约落地：补齐已声明但未兑现的测试（父 + 二子任务）
+**Branch**: `main`
+
+### Summary
+
+把代码或 spec 已声明但至今无测试兑现的契约补上。748 → 887 项（+139，52 文件），四门禁全绿，产品代码零改动。子任务 A：9 个测试零引用的导出函数，最高危的是 escapeDataIdent——注释明写「表名/列名进 SQL 前必经此函数」，而同文件其余 4 个导出都有直测唯独漏它。子任务 B1：§11.1 保密硬边界全仓零断言（assertNoSecrets 只用于 DataGrip/DBeaver），补 Preflight 四产物 + Manifest 的两层断言（8 个敏感字段名 + 5 个哨兵值），值层是核心——字段名黑名单挡不住凭据被拼进 inferences[].statement。B2：导出按钮真机 UI E2E，必须真实点击是因为导出读 React state lastPreflightResult，而既有两份真机 spec 全走 page.evaluate 调 API 设不了它，属既有覆盖盲区。变异测试四处全部先见红（破坏转义 7 failed / 删守卫约束 1 failed / 放宽判据 3 failed / 哨兵值拼进 statement 1 failed），多处由主会话独立复现而非采信子代理自报。我犯的错：写 PRD 时没读实现就凭印象填了三句事实全错（clearHistory 语义、isNodeMeta 字段数 9→8、diffTableField 解析范围），代价是两个子代理返工；design 里关于 ANSI 双引号的一条论证本身也被终审推翻——ANSI_QUOTES 默认关闭时双引号里的标识符是字符串字面量，反引号是唯一合法引号，放宽断言等于给真错误的实现发通行证。规划期抓到 5 处 spec 漂移，规律同一：任务新增能力时只更新自己那一节，交叉引用留旧。终审独立发现 Playwright 1.63 不对 type=password 掩码，本 spec 需把真实密码打进 UI 表单，明文原样进 trace.zip，故默认关 trace——秘密不落盘与失败可诊断的显式取舍，偏向安全。重要发现（未修）：src-core/diff.ts 零 import，生成的 ALTER 语句裸插值、DROP/CHANGE 列名连反引号都没有，缓解是 diff.sql 从不执行但字符串可复制粘贴，信任边界在用户的粘贴。遗留：5.7 真机 192.168.2.84 当前 socket 不可达（虚拟机环境问题，恢复后需重跑确认）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7975810` | test: 补齐 9 个零直测导出的契约测试（+122 项，产品代码零改动） |
+| `ae54fe4` | test: 补齐 §11.1 保密硬边界断言 + 导出按钮真机 UI E2E |
+
+### Status
+
+[OK] **Completed**
