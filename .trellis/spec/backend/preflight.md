@@ -622,10 +622,10 @@ UI 端（`App.tsx:handleExportPreflight`）通过 `saveTextFiles` 一次保存�
 
 ### 14.10 Follow-up（不在本任务）
 
-- UI 徽标三态同步：`verdict.level` 从四态（pass/warn/block/unknown）升级为三态（GO/DEGRADED/BLOCK）—— 需改 UI 组件，涉及独立任务。
+- ~~UI 徽标三态同步~~ → **已落地，见 §15**：`verdict.level` 四态（pass/warn/block/unknown）保留为计数来源，UI 徽标与完成 toast 改读 `summary.decision` 三态（GO/DEGRADED/BLOCK）。
 - ~~Schema v2 评估~~ → **已落地，见 §15**：`summary` 字段进 `PreflightReport`（`schemaVersion` 1→2）。
-- SQL 生成联动：`ALGORITHM=INSTANT` 等加速建议目前只在 recommendation 文本里，未来可自动追加到生成的 DDL 语句中。
-- 历史对比：多次 preflight 结果 diff（如「本次比上次新增 2 条 warn」）。
+- ~~SQL 生成联动~~ → **已落地，见 §16**：加速建议派生（`deriveSuggestedEdits`）+ 一键应用（`applySuggestedEdit`，追加 `ALGORITHM=INSTANT`）。
+- ~~历史对比~~ → **已落地，见 §17**：多次 preflight 结果 diff（`diffPreflight` + 独立历史视图）。
 
 ## 15. Schema v2：结论进结构
 
