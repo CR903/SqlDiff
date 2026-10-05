@@ -540,7 +540,7 @@ sql-linkage：`deriveSuggestedEdits`/`applySuggestedEdit` 纯函数 + executive"
 | Hash | Message |
 |------|---------|
 | `068c88b` | refactor(tests): 测试统一迁入 tests/ 目录（41 文件，650 项零回归） |
-| TBD | test: 补齐历史功能测试缺口（+73 项，覆盖 18 个零覆盖函数） |
+| `fc80d0e` | test: 补齐历史功能测试缺口（+73 项，覆盖 18 个零覆盖函数） |
 
 ### Status
 
