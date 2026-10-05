@@ -427,14 +427,15 @@ Markdown 表格单元格中的 `|` 用 `\|` 转义（`mdCell`）。
 
 ### 10.3 `preflightFileNames`
 
-`checkedAt` 的 `:` 与 `.` 全部替换为 `-`，产出：
+`checkedAt` 的 `:` 与 `.` 全部替换为 `-`，产出**三个**文件：
 
-- `sqldiff-preflight-<safe>.json`
-- `sqldiff-preflight-<safe>.md`
+- `sqldiff-preflight-<safe>.json` — 程序读
+- `sqldiff-preflight-<safe>.md` — 结论，人读（`preflightToExecutiveMarkdown`）
+- `sqldiff-preflight-<safe>-detail.md` — 细节，人读（`preflightToDetailMarkdown`，见 §14 双视角）
 
 示例：`sqldiff-preflight-2026-10-03T10-00-00-000Z.json`。
 
-两份文件通过 `saveTextFiles`（`kind: 'bundle'`）在**一次**目录选择中写盘（同 ReviewManifest），成功 toast 上报真实路径；取消不写盘不报错。
+三份文件通过 `saveTextFiles`（`kind: 'bundle'`）在**一次**目录选择中写盘（同 ReviewManifest），成功 toast 上报真实路径；取消不写盘不报错。
 
 ## 11. 硬边界（Out of Scope）
 
