@@ -601,3 +601,26 @@ sql-linkage：`deriveSuggestedEdits`/`applySuggestedEdit` 纯函数 + executive"
 ### Status
 
 [OK] **Completed** — AC1–AC7 全达成，已归档
+
+
+## Session 24: 5.7 真机 E2E 环境就绪 + dotenv 自动加载
+<!-- trellis-session: v=2 fp=d9d2b5bdfca2dc9e -->
+
+**Date**: 2026-10-05
+**Task**: 5.7 真机 E2E 环境就绪 + dotenv 自动加载
+**Branch**: `main`
+
+### Summary
+
+目标机是虚拟机、IP 每次重启都会变，原 spec 里写死的 defaultHost 后果不是连不上而是连到错误的那台机器（看起来像跑通了）。三件事：5.7 建 sqldiff@'%' 远程账号（fixture 库 ALL + 全局 SELECT/REPLICATION CLIENT/SUPER，SUPER 仅供 SET GLOBAL read_only）；dotenv 从传递依赖提升为显式 devDependency 并新增纯函数 env-loader 在 playwright.config.ts 加载 .env.e2e，语义为 hasOwnProperty 判据的『已有键不覆盖』（安全边界：CI secret 不被本地文件顶掉，空串也算已设置）；两个 preflight spec 去写死 IP、缺失即 skip 且 skip 文案写明为什么不给默认值（防回退护栏）；8.x 单机化删 8.0.26 describe（变量名 E2E_MYSQL_9_* 刻意保留）。终审发现 eslint ignores 漏了 playwright-report/test-results，跑过一次 e2e 后会报 3965 条 no-undef 误报。产品代码零改动。真机 5.7.44 + 8.0.46 四项全过；错误密码实测 2 项失败证明外部 env 优先；两台 cleanup 无残留。另在 spec 更新阶段发现 schemaVersion 口径漂移（3 处 spec 写 v1、常量已是 v2），其中 frontend/quality-guidelines.md 会让未来 UI 测试必然失败。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `da533e2` | feat(e2e): preflight 真机环境就绪 + dotenv 自动加载 |
+| `c99c792` | docs(spec): 修正 schemaVersion 口径漂移（spec 停在 v1，常量已是 v2） |
+
+### Status
+
+[OK] **Completed**
