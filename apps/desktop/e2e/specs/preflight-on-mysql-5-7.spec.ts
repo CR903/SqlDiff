@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { launchElectron, closeElectron, type ElectronHandle } from '../helpers/electron';
+import { readRequiredEnv, missingEnvReason } from '../helpers/env-loader';
 import {
   createFixtureDatabase,
   dropFixtureDatabase,
@@ -23,22 +24,22 @@ import type { NodeMeta } from '../../src-core/types';
 /**
  * Preflight E2E on real MySQL 5.7 (INPLACE baseline)。
  *
- * 验证 8.x 双机未覆盖的版本分叉：
- *   - 192.168.2.84 → MySQL 5.7.x → ADD_COLUMN INPLACE + rebuild / DROP_COLUMN INPLACE + rebuild
+ * 验证 INSTANT DDL 能力下界：5.7.44 上 ADD_COLUMN 与 DROP_COLUMN 均为 INPLACE + rebuild，
+ * 且全报告不含任何 INSTANT inference（INSTANT ADD 需 ≥8.0.12，INSTANT DROP 需 ≥8.0.29）。
  *
- * 三段对比（同一条 DDL 文本）：
+ * 两台真机的对照（同一条 DDL 文本）：
  *   - 5.7    (<8.0.12)：ADD INPLACE(rebuild) + DROP INPLACE(rebuild)
- *   - 8.0.26 (<8.0.29)：ADD INSTANT         + DROP INPLACE(rebuild)
- *   - 8.0.46 (≥8.0.29)：ADD INSTANT         + DROP INSTANT
+ *   - 8.0.46 (≥8.0.29)：ADD INSTANT          + DROP INSTANT
  *
- * 触发方式：
- *   E2E_RUN_PREFLIGHT_MYSQL57=1 \
- *   E2E_MYSQL_57_PASSWORD='...' \
+ * 触发方式（只需填好 `.env.e2e`，无需手工 export）：
+ *   apps/desktop/.env.e2e 中设置 E2E_RUN_PREFLIGHT_MYSQL57=1 与 E2E_MYSQL_57_*，然后
  *   npm run e2e:preflight:mysql57
  *
  * 环境变量缺失或开关未开启时整套 spec skip，不影响 `npm run e2e` 主 harness。
  * 注意：`npm run e2e:preflight:mysql`（8.x，grep "Preflight E2E"）也会加载本文件，
  * 此时因开关/密码缺失而静默 skip；反之本 script 的 grep 只命中 5.7 describe。
+ *
+ * 目标机是虚拟机，**IP 每次重启都会变** —— 因此 host 没有代码默认值：缺失即 skip。
  */
 
 interface Mysql57EnvConfig {
@@ -49,22 +50,34 @@ interface Mysql57EnvConfig {
   database: string;
 }
 
-/** 从环境变量装载 5.7 机器配置。密码缺失时返回 null（→ skip）。 */
+const ENV_PREFIX = 'E2E_MYSQL_57';
+const REQUIRED_KEYS = [`${ENV_PREFIX}_HOST`, `${ENV_PREFIX}_PASSWORD`] as const;
+
+/** 从环境变量装载 5.7 机器配置。host / password 缺失时返回 null（→ skip）。 */
 function loadMysql57EnvConfig(): Mysql57EnvConfig | null {
-  const host = process.env.E2E_MYSQL_57_HOST || '192.168.2.84';
-  const port = Number(process.env.E2E_MYSQL_57_PORT) || 3306;
-  const user = process.env.E2E_MYSQL_57_USER || 'root';
-  const password = process.env.E2E_MYSQL_57_PASSWORD;
-  const database = process.env.E2E_MYSQL_57_DATABASE || 'sqldiff_preflight_test_5_7';
-  if (!password) return null;
-  return { host, port, user, password, database };
+  const { values, missing } = readRequiredEnv(process.env, REQUIRED_KEYS);
+  if (missing.length > 0) return null;
+  return {
+    host: values[`${ENV_PREFIX}_HOST`],
+    port: Number(process.env[`${ENV_PREFIX}_PORT`]) || 3306,
+    user: process.env[`${ENV_PREFIX}_USER`] || 'root',
+    password: values[`${ENV_PREFIX}_PASSWORD`],
+    database: process.env[`${ENV_PREFIX}_DATABASE`] || 'sqldiff_preflight_test_5_7',
+  };
 }
 
 const cfg57 = loadMysql57EnvConfig();
 
-// 未显式开启 E2E_RUN_PREFLIGHT_MYSQL57=1 或密码缺失时，整套 spec 静默 skip。
+// 未显式开启 E2E_RUN_PREFLIGHT_MYSQL57=1 或必填变量缺失时，整套 spec 静默 skip。
 const RUN_MYSQL57 = process.env.E2E_RUN_PREFLIGHT_MYSQL57 === '1';
 const SKIP_MYSQL57 = !RUN_MYSQL57 || cfg57 === null;
+
+/** skip 诊断文案：点名缺哪个变量，并说明为什么不能有默认值。 */
+function skipReason(): string {
+  if (!RUN_MYSQL57) return 'E2E_RUN_PREFLIGHT_MYSQL57 未置 1（见 apps/desktop/.env.e2e）';
+  const { missing } = readRequiredEnv(process.env, REQUIRED_KEYS);
+  return missingEnvReason(missing, 'apps/desktop/.env.e2e');
+}
 
 /** 通过 page.evaluate 调 api.preflight.run，返回 PreflightReport（已 parse JSON）。 */
 async function runPreflightViaApi(
@@ -174,7 +187,7 @@ test.describe('Preflight E2E on MySQL 5.7', () => {
 
   test('fixture 建库 + preflight 全量断言 + cleanup', async () => {
     if (SKIP_MYSQL57) {
-      test.skip(true, 'E2E_MYSQL_57_PASSWORD 未设置或开关未开启');
+      test.skip(true, skipReason());
       return;
     }
     const cfg: FixtureConfig = {
@@ -241,7 +254,7 @@ test.describe('Preflight E2E on MySQL 5.7', () => {
 
   test('READ_ONLY_TARGET block 触发', async () => {
     if (SKIP_MYSQL57) {
-      test.skip(true, 'E2E_MYSQL_57_PASSWORD 未设置或开关未开启');
+      test.skip(true, skipReason());
       return;
     }
     const cfg: FixtureConfig = {

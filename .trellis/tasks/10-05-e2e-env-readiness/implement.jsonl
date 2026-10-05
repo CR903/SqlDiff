@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/e2e-harness.md", "reason": "E2E harness 约定：触发方式、版本矩阵、secret 边界"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "测试门禁：dotenv 加载逻辑必须有单测"}

@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/e2e-harness.md", "reason": "check：E2E 文档路径与真实命令一致"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "check：门禁 + 变异测试自证断言非空转"}

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { launchElectron, closeElectron, type ElectronHandle } from '../helpers/electron';
+import { readRequiredEnv, missingEnvReason } from '../helpers/env-loader';
 import {
   createFixtureDatabase,
   dropFixtureDatabase,
@@ -20,19 +21,22 @@ import type { PreflightReport } from '../../src-core/preflight-types';
 import type { NodeMeta } from '../../src-core/types';
 
 /**
- * Preflight E2E on real MySQL 8.x.
+ * Preflight E2E on real MySQL 8.0.46。
  *
- * 跑通两台开发机的版本分叉：
- *   - 192.168.5.9  → MySQL 8.0.46 → DROP_COLUMN INSTANT + rebuild=false
- *   - 192.168.5.15 → MySQL 8.0.26 → DROP_COLUMN INPLACE + rebuild=true
+ * 8.0.46 是 INSTANT DDL 的能力顶端：ADD_COLUMN（≥8.0.12）与 DROP_COLUMN（≥8.0.29）
+ * 双双 INSTANT。版本下界的 INPLACE baseline 由 `preflight-on-mysql-5-7.spec.ts`
+ * （MySQL 5.7）覆盖，两台合起来构成"两侧极端"对照。
+ * 8.0.12–8.0.28 这段中间地带（DROP 仍 INPLACE）本轮不覆盖，见任务 Out of Scope。
  *
- * 触发方式：
- *   E2E_RUN_PREFLIGHT_MYSQL=1 \
- *   E2E_MYSQL_9_PASSWORD='...' E2E_MYSQL_15_PASSWORD='...' \
+ * 触发方式（只需填好 `.env.e2e`，无需手工 export）：
+ *   apps/desktop/.env.e2e 中设置 E2E_RUN_PREFLIGHT_MYSQL=1 与 E2E_MYSQL_9_*，然后
  *   npm run e2e:preflight:mysql
  *
- * 环境变量缺失时整套 spec skip，不影响 npm run e2e 主 harness。
- * MySQL 5.7 INPLACE baseline 分支本轮不覆盖，见 follow-up 任务。
+ * 变量名沿用历史 `E2E_MYSQL_9_*`：它现在只是个不透明标签（单机化后 `9` 不再对应任何
+ * 具体机器），改名的唯一效果是让已有的 `.env.e2e` 与外部文档失效。版本语义由 describe 名承载。
+ *
+ * 目标机是虚拟机，**IP 每次重启都会变** —— 因此 host 没有代码默认值：缺失即 skip，
+ * 绝不静默去连某个可能已经过期的地址。
  */
 
 interface MysqlEnvConfig {
@@ -41,38 +45,36 @@ interface MysqlEnvConfig {
   user: string;
   password: string;
   database: string;
-  versionLabel: string;  // e.g. "8.0.46"
-  expectedDropAlgo: 'INSTANT' | 'INPLACE';
 }
 
-/** 从环境变量装载一台机器的配置。密码缺失时返回 null。 */
-function loadMysqlEnvConfig(suffix: '9' | '15'): MysqlEnvConfig | null {
-  const defaultHost = suffix === '9' ? '192.168.5.9' : '192.168.5.15';
-  const defaultDatabase = `sqldiff_preflight_test_${suffix === '9' ? '8_0_46' : '8_0_26'}`;
-  const host = process.env[`E2E_MYSQL_${suffix}_HOST`] || defaultHost;
-  const port = Number(process.env[`E2E_MYSQL_${suffix}_PORT`]) || 3306;
-  const user = process.env[`E2E_MYSQL_${suffix}_USER`] || 'root';
-  const password = process.env[`E2E_MYSQL_${suffix}_PASSWORD`];
-  const database = process.env[`E2E_MYSQL_${suffix}_DATABASE`] || defaultDatabase;
-  if (!password) return null;
+const ENV_PREFIX = 'E2E_MYSQL_9';
+const REQUIRED_KEYS = [`${ENV_PREFIX}_HOST`, `${ENV_PREFIX}_PASSWORD`] as const;
+
+/** 从环境变量装载 8.0.46 机器的配置；host / password 缺失时返回 null（→ skip）。 */
+function loadMysqlEnvConfig(): MysqlEnvConfig | null {
+  const { values, missing } = readRequiredEnv(process.env, REQUIRED_KEYS);
+  if (missing.length > 0) return null;
   return {
-    host,
-    port,
-    user,
-    password,
-    database,
-    versionLabel: suffix === '9' ? '8.0.46' : '8.0.26',
-    expectedDropAlgo: suffix === '9' ? 'INSTANT' : 'INPLACE',
+    host: values[`${ENV_PREFIX}_HOST`],
+    port: Number(process.env[`${ENV_PREFIX}_PORT`]) || 3306,
+    user: process.env[`${ENV_PREFIX}_USER`] || 'root',
+    password: values[`${ENV_PREFIX}_PASSWORD`],
+    database: process.env[`${ENV_PREFIX}_DATABASE`] || 'sqldiff_preflight_test_8_0_46',
   };
 }
 
-const cfg9 = loadMysqlEnvConfig('9');
-const cfg15 = loadMysqlEnvConfig('15');
+const cfg = loadMysqlEnvConfig();
 
-// 未显式开启 E2E_RUN_PREFLIGHT_MYSQL=1 或对应机器环境变量缺失时，整套 spec 静默 skip。
+// 未显式开启 E2E_RUN_PREFLIGHT_MYSQL=1 或必填变量缺失时，整套 spec 静默 skip。
 const RUN_MYSQL = process.env.E2E_RUN_PREFLIGHT_MYSQL === '1';
-const SKIP_MYSQL_9 = !RUN_MYSQL || cfg9 === null;
-const SKIP_MYSQL_15 = !RUN_MYSQL || cfg15 === null;
+const SKIP_MYSQL = !RUN_MYSQL || cfg === null;
+
+/** skip 诊断文案：点名缺哪个变量，并说明为什么不能有默认值。 */
+function skipReason(): string {
+  if (!RUN_MYSQL) return 'E2E_RUN_PREFLIGHT_MYSQL 未置 1（见 apps/desktop/.env.e2e）';
+  const { missing } = readRequiredEnv(process.env, REQUIRED_KEYS);
+  return missingEnvReason(missing, 'apps/desktop/.env.e2e');
+}
 
 /** 通过 page.evaluate 调 api.preflight.run，返回 PreflightReport（已 parse JSON）。 */
 async function runPreflightViaApi(
@@ -102,16 +104,16 @@ async function runPreflightViaApi(
 
 /** 在 fixture DB 上执行 SQL（用于 READ_ONLY_TARGET 触发测试）。 */
 async function executeOnFixture(
-  cfg: FixtureConfig,
+  fixtureCfg: FixtureConfig,
   sql: string,
 ): Promise<void> {
   const mysql = await import('mysql2/promise');
   const conn = await mysql.createConnection({
-    host: cfg.host,
-    port: cfg.port,
-    user: cfg.user,
-    password: cfg.password,
-    database: cfg.database,
+    host: fixtureCfg.host,
+    port: fixtureCfg.port,
+    user: fixtureCfg.user,
+    password: fixtureCfg.password,
+    database: fixtureCfg.database,
     connectTimeout: 8000,
   });
   try {
@@ -158,14 +160,13 @@ async function createTestNodeViaApi(
   }, { meta, password });
 }
 
-const node9Meta = cfg9 ? makeTestNodeMeta(cfg9, 'e2e-preflight-9', 'preflight-8.0.46') : null;
-const node15Meta = cfg15 ? makeTestNodeMeta(cfg15, 'e2e-preflight-15', 'preflight-8.0.26') : null;
+const nodeMeta = cfg ? makeTestNodeMeta(cfg, 'e2e-preflight-9', 'preflight-8.0.46') : null;
 
 let handle: ElectronHandle | null = null;
 
 test.beforeAll(async () => {
-  if (SKIP_MYSQL_9 && SKIP_MYSQL_15) {
-    // 两台都跳过，无需启动 Electron。
+  if (SKIP_MYSQL) {
+    // 跳过：无需启动 Electron。
     return;
   }
   handle = await launchElectron([]);
@@ -181,34 +182,34 @@ test.describe('Preflight E2E on MySQL 8.0.46', () => {
   test.describe.configure({ timeout: 180_000 });
 
   test('fixture 建库 + preflight 全量断言 + cleanup', async () => {
-    if (SKIP_MYSQL_9) {
-      test.skip(true, 'E2E_MYSQL_9_HOST/PASSWORD 未设置或开关未开启');
+    if (SKIP_MYSQL) {
+      test.skip(true, skipReason());
       return;
     }
-    const cfg: FixtureConfig = {
-      host: cfg9!.host,
-      port: cfg9!.port,
-      user: cfg9!.user,
-      password: cfg9!.password,
-      database: cfg9!.database,
+    const fixtureCfg: FixtureConfig = {
+      host: cfg!.host,
+      port: cfg!.port,
+      user: cfg!.user,
+      password: cfg!.password,
+      database: cfg!.database,
     };
     try {
       // 预检连接
-      const version = await checkConnection(cfg);
-      expect(version).toContain('8.0');
+      const version = await checkConnection(fixtureCfg);
+      expect(version).toMatch(/^8\.0\./);
 
       // 建 fixture
-      await createFixtureDatabase(cfg);
+      await createFixtureDatabase(fixtureCfg);
 
       // 通过 API 创建测试节点（含 secret）
-      const bId9 = await createTestNodeViaApi(handle!.page, node9Meta!, cfg9!.password);
+      const bId = await createTestNodeViaApi(handle!.page, nodeMeta!, cfg!.password);
 
       // 跑 preflight
       const report = await runPreflightViaApi(
         handle!.page,
-        bId9,
+        bId,
         'preflight-8.0.46',
-        cfg9!.database,
+        cfg!.database,
         { bigTableRows: 1000 },
       );
 
@@ -223,8 +224,7 @@ test.describe('Preflight E2E on MySQL 8.0.46', () => {
       // 此处仅要求 > 0 表示有数据行；精确行数验证留给 SQL 层）
       assertFactNumberAtLeast(report, 'table.users_big.rows', 1);
 
-      // ADD_COLUMN 双机一致 INSTANT
-      // DROP_COLUMN 8.0.46 → INSTANT
+      // ADD_COLUMN INSTANT + DROP_COLUMN INSTANT（8.0.46 ≥ 8.0.29，两侧都走 INSTANT）
       assertInstantAddDrop(report, 'INSTANT');
 
       // OTHER 分类落 Unknown
@@ -245,38 +245,38 @@ test.describe('Preflight E2E on MySQL 8.0.46', () => {
       expect(visFact?.value).toMatch(/^(full|partial|none)$/);
     } finally {
       // Cleanup：DROP DATABASE 无论成败
-      await dropFixtureDatabase(cfg);
+      await dropFixtureDatabase(fixtureCfg);
     }
   });
 
   test('READ_ONLY_TARGET block 触发', async () => {
-    if (SKIP_MYSQL_9) {
-      test.skip(true, 'E2E_MYSQL_9_HOST/PASSWORD 未设置或开关未开启');
+    if (SKIP_MYSQL) {
+      test.skip(true, skipReason());
       return;
     }
-    const cfg: FixtureConfig = {
-      host: cfg9!.host,
-      port: cfg9!.port,
-      user: cfg9!.user,
-      password: cfg9!.password,
-      database: cfg9!.database,
+    const fixtureCfg: FixtureConfig = {
+      host: cfg!.host,
+      port: cfg!.port,
+      user: cfg!.user,
+      password: cfg!.password,
+      database: cfg!.database,
     };
     try {
       // 复用上一 test 建的 fixture 库；若不存在则先建
-      await createFixtureDatabase(cfg);
+      await createFixtureDatabase(fixtureCfg);
 
       // 通过 API 创建测试节点
-      const bId9 = await createTestNodeViaApi(handle!.page, node9Meta!, cfg9!.password);
+      const bId = await createTestNodeViaApi(handle!.page, nodeMeta!, cfg!.password);
 
       // 打开 read_only
-      await executeOnFixture(cfg, 'SET GLOBAL read_only=1');
+      await executeOnFixture(fixtureCfg, 'SET GLOBAL read_only=1');
 
       try {
         const report = await runPreflightViaApi(
           handle!.page,
-          bId9,
+          bId,
           'preflight-8.0.46',
-          cfg9!.database,
+          cfg!.database,
         );
 
         // 断言 READ_ONLY_TARGET block（issue id 含 subject）
@@ -285,69 +285,11 @@ test.describe('Preflight E2E on MySQL 8.0.46', () => {
         // server.read_only fact 应为 1
         assertFactValue(report, 'server.read_only', 1);
       } finally {
-        // 无论成败都还原
-        await executeOnFixture(cfg, 'SET GLOBAL read_only=0');
+        // 无论成败都还原（残留会影响开发机后续使用）
+        await executeOnFixture(fixtureCfg, 'SET GLOBAL read_only=0');
       }
     } finally {
-      await dropFixtureDatabase(cfg);
-    }
-  });
-});
-
-test.describe('Preflight E2E on MySQL 8.0.26', () => {
-  test.describe.configure({ timeout: 180_000 });
-
-  test('fixture 建库 + preflight 全量断言 + cleanup', async () => {
-    if (SKIP_MYSQL_15) {
-      test.skip(true, 'E2E_MYSQL_15_HOST/PASSWORD 未设置或开关未开启');
-      return;
-    }
-    const cfg: FixtureConfig = {
-      host: cfg15!.host,
-      port: cfg15!.port,
-      user: cfg15!.user,
-      password: cfg15!.password,
-      database: cfg15!.database,
-    };
-    try {
-      const version = await checkConnection(cfg);
-      expect(version).toContain('8.0');
-
-      await createFixtureDatabase(cfg);
-
-      const bId15 = await createTestNodeViaApi(handle!.page, node15Meta!, cfg15!.password);
-
-      const report = await runPreflightViaApi(
-        handle!.page,
-        bId15,
-        'preflight-8.0.26',
-        cfg15!.database,
-        { bigTableRows: 1000 },
-      );
-
-      assertReportStructure(report);
-      assertFactValue(report, 'server.mysql_version', version);
-      // users_big 数据量断言（information_schema.TABLE_ROWS 是估算值，InnoDB 可偏差较大，
-      // 此处仅要求 > 0 表示有数据行；精确行数验证留给 SQL 层）
-      assertFactNumberAtLeast(report, 'table.users_big.rows', 1);
-
-      // 8.0.26 < 8.0.29 → DROP_COLUMN 仍是 INPLACE
-      assertInstantAddDrop(report, 'INPLACE');
-
-      assertOtherGoesToUnknown(report, 'd11');
-
-      assertIssue(
-        report,
-        'LARGE_TABLE_INSTANT_ADD:diff-item:d01',
-        'warn',
-      );
-
-      expect(['pass', 'warn', 'block', 'unknown']).toContain(report.verdict.level);
-
-      const visFact = findFactByKey(report, 'permissions.visibility');
-      expect(visFact?.value).toMatch(/^(full|partial|none)$/);
-    } finally {
-      await dropFixtureDatabase(cfg);
+      await dropFixtureDatabase(fixtureCfg);
     }
   });
 });

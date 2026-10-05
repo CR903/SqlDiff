@@ -186,7 +186,7 @@ export async function dropFixtureDatabase(cfg: FixtureConfig): Promise<void> {
 }
 
 /**
- * 检查连接是否可用，返回 MySQL 版本号（形如 `8.0.46` / `8.0.46-log` / `8.0.26-...`）。
+ * 检查连接是否可用，返回 MySQL 版本号（形如 `8.0.46` / `5.7.44-log`）。
  * 用于 spec 的 beforeAll 预检：连接不通时 skip 整个 describe，避免 flaky。
  */
 export async function checkConnection(cfg: FixtureConfig): Promise<string> {

@@ -241,10 +241,13 @@ export function findFactByKey(
 
 /**
  * 断言 INSTANT ADD/DROP 的版本分叉：
- * - d01 ADD_COLUMN 双机一致 → algorithm 必须是 INSTANT（MySQL ≥ 8.0.12 的 v1 乐观推断）；
+ * - d01 ADD_COLUMN → algorithm 必须是 INSTANT（MySQL ≥ 8.0.12 的 v1 乐观推断）；
  * - d02 DROP_COLUMN 按 expectedDropAlgo 分叉：
- *   - 8.0.26（<8.0.29）→ INPLACE + rebuildsTable=true；
- *   - 8.0.46（≥8.0.29）→ INSTANT + rebuildsTable=false。
+ *   - < 8.0.29 → INPLACE + rebuildsTable=true；
+ *   - ≥ 8.0.29 → INSTANT + rebuildsTable=false。
+ *
+ * 当前只有 8.0.46 一台真机覆盖（expectedDropAlgo='INSTANT'）；INPLACE 侧由
+ * `assertInplaceBaseline` 在 MySQL 5.7 上覆盖，8.0.12–8.0.28 这段中间地带暂无真机。
  *
  * PreflightInference 的 algorithm 信息内嵌在 statement 字符串里
  * （`d01: ADD_COLUMN on users_big → INSTANT/SHARED`），

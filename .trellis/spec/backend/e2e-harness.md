@@ -38,6 +38,7 @@ apps/desktop/
     helpers/
       electron.ts           # launchElectron(nodes) / closeElectron(handle) — temp userDataDir, env injection
       assertions.ts         # assertWellFormedXml, extractDataSources, extractSshConfigs, assertNoSecrets, parseDBeaverJson
+      env-loader.ts         # loadEnvFile / readRequiredEnv / missingEnvReason — .env.e2e 装载与必填变量诊断（纯函数，可单测）
     fixtures/
       test-nodes.ts         # 5 test nodes (direct, pwd-SSH, key-SSH, 2 collapse nodes)
   src-main/
@@ -45,6 +46,7 @@ apps/desktop/
   tests/
     main/
       save-file.test.ts     # saveFilesToDir unit tests + env branch coverage
+      env-loader.test.ts    # .env.e2e 加载三态 + 必填变量诊断（被测模块在 e2e/helpers/ 下）
 ```
 
 ## E2E Save Dialog Strategy
@@ -139,28 +141,54 @@ None of these affect any existing product behavior.
 
 ### 触发方式
 
-```bash
-# 设置环境变量后手动触发（不合并到 CI，依赖外部 MySQL 可达性）
-E2E_RUN_PREFLIGHT_MYSQL=1 \
-E2E_MYSQL_9_PASSWORD='<pw>' \
-E2E_MYSQL_15_PASSWORD='<pw>' \
-npm run e2e:preflight:mysql
+真机 host 与密码统一放在 `apps/desktop/.env.e2e`（gitignored，模板见 `.env.e2e.example`），
+由 `e2e/playwright.config.ts` 用 dotenv 自动加载 —— **填好文件即可跑，无需手工 export**。
 
-# MySQL 5.7（独立开关，与 8.x 开关互不影响）
-E2E_RUN_PREFLIGHT_MYSQL57=1 \
-E2E_MYSQL_57_PASSWORD='<pw>' \
-npm run e2e:preflight:mysql57
+```bash
+# 触发方式（不合并到 CI，依赖外部 MySQL 可达性）
+npm run e2e:preflight:mysql      # MySQL 8.0.46（E2E_RUN_PREFLIGHT_MYSQL）
+npm run e2e:preflight:mysql57    # MySQL 5.7  （E2E_RUN_PREFLIGHT_MYSQL57，独立开关）
 ```
 
 未设置对应开关时整套 spec 静默 skip，不影响 `npm run e2e` 主 harness。
+注意开关是从 `.env.e2e` 加载的：一旦把 `E2E_RUN_PREFLIGHT_MYSQL=1` 写进文件，
+`npm run e2e`（`testDir: './specs'` 会收集全部 spec）也会把真机 preflight spec 一起跑起来。
+模板默认给 0 就是为了让主 harness 保持安静——只想跑真机用例时用上面两个专用 script。
+
+### `.env.e2e` 加载语义（安全边界）
+
+`e2e/helpers/env-loader.ts` 的 `loadEnvFile()` 被 `playwright.config.ts` 在收集测试前调用：
+
+| 情形 | 行为 |
+|---|---|
+| `process.env` 已存在的键 | **不覆盖**（外部 / CI 注入优先） |
+| 仅 `.env.e2e` 里存在的键 | 注入 |
+| 外部注入的是空字符串 | 同样算"已设置"，不覆盖（判据是 `hasOwnProperty`，与 dotenv `override:false` 一致） |
+| `.env.e2e` 不存在 | 静默返回 `loaded:false`，不抛错 |
+
+"已有优先"是**安全边界**而非便利性：否则 CI 注入的 secret 会被本地文件里的旧值顶掉。
+缺失文件必须静默，因为 `.env.e2e` 不存在是**正常状态**（主 harness 不需要它），
+诊断交由各 spec 自己的 skip 消息给出。三态由 `tests/main/env-loader.test.ts` 锁住。
+
+### 为什么 host 没有代码默认值
+
+目标机是**虚拟机，IP 每次重启都会变**。因此 spec 里 host 不带默认值：写死后 IP 一变，
+spec 要么静默 skip（看不出原因），要么**连到错误的那台机器**——后者更糟，因为它看起来跑通了。
+缺失 host 时 spec skip 并点名缺哪个变量，同时说明"IP 是动态的、请填 `.env.e2e`"，
+避免下一个维护者把默认值加回去。
 
 ### 版本矩阵
 
-| 机器 | MySQL 版本 | INSTANT ADD | INSTANT DROP |
+| 目标 | MySQL 版本 | INSTANT ADD | INSTANT DROP |
 |---|---|---|---|
-| 192.168.5.9 | 8.0.46 | ✅ (≥8.0.12) | ✅ (≥8.0.29) |
-| 192.168.5.15 | 8.0.26 | ✅ (≥8.0.12) | ❌ (<8.0.29) |
-| 192.168.2.84 | 5.7.x | ❌ | ❌（ADD/DROP COLUMN 均走 INPLACE + rebuild） |
+| `E2E_MYSQL_9_*` | 8.0.46 | ✅ (≥8.0.12) | ✅ (≥8.0.29) |
+| `E2E_MYSQL_57_*` | 5.7.44 | ❌ | ❌（ADD/DROP COLUMN 均走 INPLACE + rebuild） |
+
+两台构成 INSTANT 能力的**两侧极端**。8.0.12–8.0.28 这段中间地带（DROP 仍 INPLACE）
+当前无真机覆盖，属已知的 Out of Scope。
+
+变量名 `E2E_MYSQL_9_*` 是单机化后遗留的**不透明标签**（`9` 不再对应任何具体机器）。
+刻意不改名：改名只会让已有 `.env.e2e` 与外部文档失效，版本语义由 describe 名承载。
 
 ### Fixture 8 表清单
 
@@ -180,8 +208,8 @@ npm run e2e:preflight:mysql57
 1. `schemaVersion === 1`
 2. `server.mysql_version` fact 与 fixture 版本一致
 3. `table.users_big.rows` fact > 0（information_schema 估算值）
-4. ADD_COLUMN Inference `algorithm === 'INSTANT'`（双机一致）
-5. DROP_COLUMN Inference `algorithm` 分叉：8.0.26 → INPLACE；8.0.46 → INSTANT
+4. ADD_COLUMN Inference `algorithm === 'INSTANT'`（8.0.46 侧；5.7 侧见 `assertInplaceBaseline`）
+5. DROP_COLUMN Inference `algorithm` 分叉：5.7 → INPLACE；8.0.46 → INSTANT
 6. OTHER 分类落 Unknown（`unparsed-ddl`）
 7. `LARGE_TABLE_INSTANT_ADD` issue 存在（severity='warn'）
 8. `READ_ONLY_TARGET` block issue 触发（临时 `SET GLOBAL read_only=1`）
@@ -192,7 +220,19 @@ npm run e2e:preflight:mysql57
 ### 5.7 INPLACE baseline（已覆盖）
 
 MySQL 5.7 分支由 `preflight-on-mysql-5-7.spec.ts` 覆盖（`npm run e2e:preflight:mysql57`，
-开关 `E2E_RUN_PREFLIGHT_MYSQL57`，env 约定 `E2E_MYSQL_57_*`，见 `.env.e2e.example` 目标 3）。
-三段对比：5.7（ADD/DROP 均 INPLACE + rebuild，全报告无 INSTANT）/
-8.0.26（ADD INSTANT + DROP INPLACE）/ 8.0.46（双 INSTANT）。
+开关 `E2E_RUN_PREFLIGHT_MYSQL57`，env 约定 `E2E_MYSQL_57_*`，见 `.env.e2e.example` 目标 2）。
+两段对比：5.7（ADD/DROP 均 INPLACE + rebuild，全报告无 INSTANT）/ 8.0.46（双 INSTANT）。
 5.7 反向断言：`BIG_TABLE_COPY` block（rebuild 路径）存在，`LARGE_TABLE_INSTANT_ADD` 永不触发。
+
+5.7 目标机的 `root` 仅有 `root@localhost`，TCP 远程登录被拒，需专用远程账号：
+
+```sql
+CREATE USER 'sqldiff'@'%' IDENTIFIED BY '<pw>';
+GRANT ALL PRIVILEGES ON `sqldiff_preflight_test_5_7`.* TO 'sqldiff'@'%';
+GRANT SELECT, REPLICATION CLIENT, SUPER ON *.* TO 'sqldiff'@'%';
+```
+
+`ALL` on fixture 库覆盖建表/灌数据/删库；全局 `SELECT` 读 `information_schema`；
+`REPLICATION CLIENT` 服务 `SHOW SLAVE STATUS`（5.7 无 `SHOW REPLICA STATUS`，走降级链）；
+`SUPER` **唯一用途**是 `READ_ONLY_TARGET` 用例的 `SET GLOBAL read_only`，
+spec 的 `finally` 负责还原（read_only 残留会影响开发机后续使用）。

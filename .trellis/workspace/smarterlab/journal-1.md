@@ -453,7 +453,7 @@ UI 显示从 v1 四态（pass/warn/block/unknown）改为 v2 三态（GO/DEGRADE
 
 ### Summary
 
-补齐 8.x 双机未覆盖的 5.7 INPLACE baseline 分支（`meta.followUp = preflight-e2e-mysql-5.7`），形成 5.7 / 8.0.26 / 8.0.46 三段版本对比。环境：用户给 CentOS 8.5 虚拟机 `192.168.2.84`，yum 源无 5.7（只到 el7），改官方 `mysql-5.7.44` tarball 装到 `/opt/mysql-5.7` + datadir `/data/mysql57` + systemd `mysqld57`（中间踩坑：首包下断 586MB gzip EOF、VM curl 不认 `--retry-all-errors`、client 缺 `libncurses.so.5`）。MySQL root 密码用户定为 `DB.smarterlab@2018`；E2E 用 `sqldiff@%` 专用账号（fixture 库 ALL + 全局 SELECT/REPLICATION CLIENT/SUPER），密码走 env 不入库。
+补齐 8.x 双机未覆盖的 5.7 INPLACE baseline 分支（`meta.followUp = preflight-e2e-mysql-5.7`），形成 5.7 / 8.0.26 / 8.0.46 三段版本对比。环境：用户给 CentOS 8.5 虚拟机 `192.168.2.84`，yum 源无 5.7（只到 el7），改官方 `mysql-5.7.44` tarball 装到 `/opt/mysql-5.7` + datadir `/data/mysql57` + systemd `mysqld57`（中间踩坑：首包下断 586MB gzip EOF、VM curl 不认 `--retry-all-errors`、client 缺 `libncurses.so.5`）。MySQL root 密码由用户指定（不入库，记在 mnemon）；E2E 用 `sqldiff@%` 专用账号（fixture 库 ALL + 全局 SELECT/REPLICATION CLIENT/SUPER），密码走 env 不入库。
 
 实现：新增 `e2e/specs/preflight-on-mysql-5-7.spec.ts`（2 tests：全量断言 + READ_ONLY_TARGET）+ `assertInplaceBaseline`/`assertNoIssue` 断言 + `e2e:preflight:mysql57` script + `.env.e2e.example` 示例段；fixture 零改动（5.7 语法全合法）。真机 2/2 通过约 17s：d01/d02 均 `INPLACE + rebuild`、零 INSTANT、`BIG_TABLE_COPY` block（8.x 同位置是 `LARGE_TABLE_INSTANT_ADD` warn——正是三段对比证据点）；cleanup 后无残留库。605/605 单测、typecheck、lint 全绿，产品代码 diff 为空。check 另修 `e2e-harness.md` 过期"5.7 缺口"段落。
 
