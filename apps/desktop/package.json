@@ -14,6 +14,7 @@
     "icon": "node scripts/generate-icon.mjs",
     "pack": "npm run build && electron-builder --win --mac",
     "e2e": "npx playwright test --config e2e/playwright.config.ts",
+    "e2e:export:ui": "npx playwright test --config e2e/playwright.config.ts --grep \"导出 UI E2E\"",
     "e2e:preflight:mysql": "npx playwright test --config e2e/playwright.config.ts --grep \"Preflight E2E\"",
     "e2e:preflight:mysql57": "npx playwright test --config e2e/playwright.config.ts --grep \"Preflight E2E on MySQL 5.7\""
   },

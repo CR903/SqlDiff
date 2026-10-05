@@ -148,12 +148,37 @@ None of these affect any existing product behavior.
 # 触发方式（不合并到 CI，依赖外部 MySQL 可达性）
 npm run e2e:preflight:mysql      # MySQL 8.0.46（E2E_RUN_PREFLIGHT_MYSQL）
 npm run e2e:preflight:mysql57    # MySQL 5.7  （E2E_RUN_PREFLIGHT_MYSQL57，独立开关）
+npm run e2e:export:ui            # 导出按钮 UI 可达性（E2E_RUN_EXPORT_UI，独立开关）
 ```
 
 未设置对应开关时整套 spec 静默 skip，不影响 `npm run e2e` 主 harness。
 注意开关是从 `.env.e2e` 加载的：一旦把 `E2E_RUN_PREFLIGHT_MYSQL=1` 写进文件，
 `npm run e2e`（`testDir: './specs'` 会收集全部 spec）也会把真机 preflight spec 一起跑起来。
-模板默认给 0 就是为了让主 harness 保持安静——只想跑真机用例时用上面两个专用 script。
+模板默认给 0 就是为了让主 harness 保持安静——只想跑真机用例时用上面三个专用 script。
+
+每个真机 spec 一个**独立开关**（`E2E_RUN_PREFLIGHT_MYSQL` / `E2E_RUN_PREFLIGHT_MYSQL57` /
+`E2E_RUN_EXPORT_UI`），不是共用一个：开关的含义是「这一类真机用例是否参与运行」，
+共用一个会让「只想跑导出 UI」被迫把两台真机 preflight 也拉起来。
+
+### 导出按钮 UI 可达性（`export-ui.spec.ts`）
+
+`导出 Preflight 报告` 读 renderer 的 React state `lastPreflightResult`，**只有真实点击 UI 才会设它**；
+`page.evaluate(() => api.preflight.run(...))` 这类 API 直调**设不了**，所以既有的真机 preflight spec
+（全部走 API）验证不到导出层。本 spec 走完整链路：
+
+```
+UI 建两个节点（真实表单，凭据进 vault）→ 对比 ⚡ → 运行 Preflight
+  → 导出 Preflight 报告 → 导出审查报告
+```
+
+`canRunPreflight`（`App.tsx:673`）要求「真实比较 + ≥1 条表级 DDL 项」，因此 fixture 必须建
+**A/B 两个库**（B 比 A 多一列 → ADD COLUMN）。一次比较同时喂饱两个导出 —— 这正是
+`frontend/quality-guidelines.md:69` 要求的 "same CDP harness run"。`afterAll` 里两库都删。
+
+**§11.1 判据在两层各写一套，刻意不共享**：`tests/core/preflight-export-secrets.test.ts`（B1 单测）
+与 `e2e/specs/export-ui.spec.ts`（B2）各有一份 `CONFIDENTIALITY_NOTES` 与无秘密判据。理由是
+目录边界（`tests/` 不 import `e2e/`）。**代价是两处文案要同步改**——改一处漏一处，每个导出都会假红。
+B2 的值层更强：它拿 `.env.e2e` 里的**真实密码**做运行时断言（只从 `process.env` 读，不入库）。
 
 ### `.env.e2e` 加载语义（安全边界）
 
