@@ -34,6 +34,11 @@ apps/desktop/
 │   ├── preflight-rules.ts    # (v1 preflight) nine rule evaluators
 │   ├── preflight.ts          # (v1 preflight) buildPreflightReport + serialize + markdown
 │   └── ipc-error.ts          # renderer-safe IPC error sanitization
+├── tests/                    # all *.test.ts; mirrors the tested source directory
+│   ├── core/                 # ← src-core
+│   ├── main/                 # ← src-main
+│   ├── converters/           # ← src-main/converters
+│   └── renderer/             # ← src-renderer
 ├── scripts/                  # repeatable tooling; icon-source.html + generator
 └── build/icon/               # generated, committed packaging assets
 ```
@@ -60,5 +65,5 @@ apps/desktop/
 
 - Use kebab-case for modules (`compare-filter.ts`, `data-fetch.ts`) and PascalCase for React components (`NodeLibrary`, `SqlPreview`).
 - Use camelCase for functions and methods, and uppercase snake case for constants such as `MAX_CONCURRENCY` and `HISTORY_LIMIT`.
-- Most tests are colocated as `<module>.test.ts`. The current storage exception is `src-core/vault.test.ts`, which exercises `src-main/vault.ts` and `src-main/store-json.ts`; keep that exception visible rather than inventing a second test location. Renderer-only pure helpers stay in `src-renderer`; logic needed by both processes belongs in `src-core`.
+- Tests are `<module>.test.ts` under `tests/`, in the directory mirroring the tested source directory; they are never colocated with the implementation. `tests/core/vault.test.ts` is the cross-layer exception because it exercises `src-main/vault.ts` and `src-main/store-json.ts`; keep that exception visible rather than inventing a second test location. Renderer-only pure helpers stay in `src-renderer`; logic needed by both processes belongs in `src-core`.
 - Use `.mjs` for repository tooling executed directly by Node, as in `scripts/generate-icon.mjs`.

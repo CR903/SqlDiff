@@ -99,7 +99,7 @@ The scanner is used instead of a two-pass regex because it correctly handles dou
 
 ## 8. Tests Required
 
-`src-core/manifest.test.ts` must cover: every `deriveCoverageStatus` branch (ok / permission-denied / no-row-identity / over-threshold / aborted / error / grant-invisible), `redactDmlSql` (string / number / date / Buffer / NULL / backtick-with-quote / doubled backtick / multiline / comments), byte-stable `serializeManifest`, `manifestToMarkdown` sections, the demo rejection, the rollback/explain exclusion, secret-field absence, and the AC3 round-trip (real result → manifest → parse back to equivalent semantics).
+`tests/core/manifest.test.ts` must cover: every `deriveCoverageStatus` branch (ok / permission-denied / no-row-identity / over-threshold / aborted / error / grant-invisible), `redactDmlSql` (string / number / date / Buffer / NULL / backtick-with-quote / doubled backtick / multiline / comments), byte-stable `serializeManifest`, `manifestToMarkdown` sections, the demo rejection, the rollback/explain exclusion, secret-field absence, and the AC3 round-trip (real result → manifest → parse back to equivalent semantics).
 
 The full gate runs `npm run typecheck`, `npm run lint`, `npm test`, `npm run build` from `apps/desktop`.
 

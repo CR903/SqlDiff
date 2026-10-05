@@ -42,7 +42,9 @@ apps/desktop/
       test-nodes.ts         # 5 test nodes (direct, pwd-SSH, key-SSH, 2 collapse nodes)
   src-main/
     save-file.ts            # E2E hook: getE2eSaveDir() checks env var, saveFilesToDir() writes directly
-    save-file.test.ts       # saveFilesToDir unit tests + env branch coverage
+  tests/
+    main/
+      save-file.test.ts     # saveFilesToDir unit tests + env branch coverage
 ```
 
 ## E2E Save Dialog Strategy

@@ -13,8 +13,8 @@ apps/desktop/
 │   ├── node-filter.ts                 # pure left-panel filtering
 │   ├── demo.ts                        # no-IPC comparison fixture
 │   ├── styles.css                     # global dark desktop styles
-│   ├── vite-env.d.ts
-│   └── *.test.ts                      # colocated pure renderer tests
+│   └── vite-env.d.ts
+├── tests/renderer/                    # *.test.ts for src-renderer
 ├── src-core/                          # domain logic/types shared with main
 └── src-main/preload.ts                # typed contextBridge API and renderer-facing inputs
 ```
@@ -26,7 +26,7 @@ There is intentionally no `pages/`, `routes/`, `components/`, `hooks/`, or CSS-m
 - `main.tsx` owns only mounting and global stylesheet import. Keep startup side effects in `App` or store actions, not the React root bootstrap.
 - `App.tsx` is the current composition boundary. It selects shared state, derives the visible diff list, and passes data/callbacks to local components. A component that needs a large independent state machine may justify a new file, but no such split currently establishes a directory convention.
 - `store.ts` owns shared domain state and IPC side effects. Do not call `window.sqldiff` independently from several presentational components for the same resource; route refresh/mutation through store actions as `refreshNodes`, `refreshDataTables`, and `runCompare` do.
-- `node-filter.ts` and the pure highlighter/export helpers in `sql.ts` are renderer-local; `sql.test.ts` directly tests `highlightSql` and `buildExportText`. Move logic to `src-core` when it must be shared by main and renderer, as with `compare-filter.ts`; `ipc-error.ts` is a pure renderer-facing helper kept browser-safe in `src-core`.
+- `node-filter.ts` and the pure highlighter/export helpers in `sql.ts` are renderer-local; `tests/renderer/sql.test.ts` directly tests `highlightSql` and `buildExportText`. Move logic to `src-core` when it must be shared by main and renderer, as with `compare-filter.ts`; `ipc-error.ts` is a pure renderer-facing helper kept browser-safe in `src-core`.
 - `demo.ts` is preview/fallback data, not a mock server. It calls the real `compareRun` core with in-memory metadata.
 - `styles.css` contains global class names used by JSX. There is no CSS Modules or utility CSS framework in the production renderer. Monaco is installed as a dependency but is not imported; the current SQL view is the `<pre>` in `App.tsx`.
 - `apps/desktop-mock/index.html` is a layout/interaction reference only. Production behavior belongs in the TypeScript renderer; do not update the mock as a side effect of a product fix.
@@ -42,5 +42,5 @@ Do not import runtime code from `src-main/main.ts`, `connection.ts`, `metadata.t
 - React components and local component types use PascalCase.
 - Hooks use React's `useX` form; there are currently no project-specific custom hook files.
 - Helpers and store actions use camelCase. Constants and exported filter collections use uppercase names such as `VERB_CHIPS` and `OBJECT_CHIPS`.
-- Non-component modules are kebab-case (`node-filter.ts`); component files use PascalCase (`App.tsx`), and tests are colocated as `<module>.test.ts`.
+- Non-component modules are kebab-case (`node-filter.ts`); component files use PascalCase (`App.tsx`), and tests are `<module>.test.ts` under `tests/renderer/`, not colocated.
 - CSS classes are semantic kebab-case (`diff-row`, `drop-alert`, `data-status-row`) and are defined in `styles.css`, not inline as ad hoc style objects except for a few dynamic widths/colors.

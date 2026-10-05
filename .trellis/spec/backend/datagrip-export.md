@@ -97,7 +97,7 @@ All errors are domain-prefixed and may be shown after `sanitizeIpcError` at the 
 
 ## 6. Tests Required
 
-- `src-main/converters/datagrip.test.ts` must assert:
+- `tests/converters/datagrip.test.ts` must assert:
   - Direct node: no `sshConfigs.xml`, correct driver constants, no `<ssh-properties>`.
   - UUID consistency across `dataSources.xml` and `dataSources.local.xml` (same UUID per alias).
   - Password SSH: `<ssh-properties>` reference + `<sshConfig authType="PASSWORD" host port username id>`.

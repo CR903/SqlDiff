@@ -13,7 +13,7 @@ npm test
 npm run build
 ```
 
-Use focused tests while iterating, for example `npm test -- src-core/diff.test.ts`. `npm run pack` is reserved for icon or release changes.
+Use focused tests while iterating, for example `npm test -- tests/core/diff.test.ts`. `npm run pack` is reserved for icon or release changes.
 
 ## Security Invariants
 
@@ -40,17 +40,17 @@ These are correctness contracts, not cleanup opportunities:
 
 ## Test Strategy
 
-Tests are Vitest files, mostly colocated, and avoid live infrastructure by extracting pure functions or injecting minimal fakes. The current storage exception is `src-core/vault.test.ts`, which exercises `src-main/vault.ts` and `src-main/store-json.ts`:
+Tests are Vitest files under `apps/desktop/tests/`, never beside the implementation. They avoid live infrastructure by extracting pure functions or injecting minimal fakes. `tests/{core,main,converters,renderer}/` mirrors the tested source directory, and file names stay equal to the module under test:
 
-- legacy structural semantics and assembly: `src-core/diff.test.ts`;
-- connection configuration and tunnel cache: `src-main/connection.test.ts`;
-- SQL text, escaping, result shapes, and concurrency: `src-main/metadata.test.ts` and `src-main/data-fetch.test.ts`;
-- secret persistence/export and JSON storage: `src-core/vault.test.ts` (it exercises the main-process `vault.ts` and `store-json.ts`);
-- row identity decisions: `src-main/data-run-identity.test.ts`;
-- download, export-save, and IPC error regressions: `src-main/download.test.ts`, `src-main/save-file.test.ts`, and `src-core/ipc-error.test.ts`;
-- compare/data 应用服务集成测试（cleanup/cancel/partial failure）：`src-main/compare-run.integration.test.ts` 与 `src-main/data-run.integration.test.ts`（模块级 mock 连接层，被测编排逻辑全真）。
+- legacy structural semantics and assembly: `tests/core/diff.test.ts`;
+- connection configuration and tunnel cache: `tests/main/connection.test.ts`;
+- SQL text, escaping, result shapes, and concurrency: `tests/main/metadata.test.ts` and `tests/main/data-fetch.test.ts`;
+- secret persistence/export and JSON storage: `tests/core/vault.test.ts` (it exercises the main-process `vault.ts` and `store-json.ts`, so it stays the cross-layer exception);
+- row identity decisions: `tests/main/data-run-identity.test.ts`;
+- download, export-save, and IPC error regressions: `tests/main/download.test.ts`, `tests/main/save-file.test.ts`, and `tests/core/ipc-error.test.ts`;
+- compare/data 应用服务集成测试（cleanup/cancel/partial failure）：`tests/main/compare-run.integration.test.ts` 与 `tests/main/data-run.integration.test.ts`（模块级 mock 连接层，被测编排逻辑全真）。
 
-Add or update a test in the same relevant layer as the change, preserving the documented storage exception. Test null/empty input, compatibility edges, and cleanup paths, not just the happy path. For filesystem tests, use temporary directories and remove them in `afterEach`, as in `vault.test.ts`.
+Add or update a test in the mirror directory for the changed layer. `vitest.config.ts` includes only `tests/**/*.test.ts`, and both `tsconfig.json` and `tsconfig.main.json` include `tests`, so a misplaced file fails the run rather than going unnoticed. Test null/empty input, compatibility edges, and cleanup paths, not just the happy path. For filesystem tests, use temporary directories and remove them in `afterEach`, as in `vault.test.ts`.
 
 For UI, data-flow, clipboard, confirm-dialog, or download changes, use the trusted-input CDP procedure in [Frontend Quality Guidelines](../frontend/quality-guidelines.md#cdp-end-to-end-checks).
 

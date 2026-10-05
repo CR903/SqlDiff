@@ -22,7 +22,7 @@ This directory covers the Electron main process and the process-neutral comparis
 - If an IPC method or payload changes, update the shared contract in `src-core/types.ts`, the bridge in `src-main/preload.ts`, its handler in `src-main/main.ts`, and renderer callers together.
 - Preserve the read-only contract: MySQL calls are limited to `SELECT`, `COUNT`, `information_schema`, and `SHOW CREATE`, as implemented by `src-main/metadata.ts` and `src-main/data-fetch.ts`.
 - Treat `mysqldiff/` as read-only historical behavior. Port or test semantics in `apps/desktop/src-core`; do not repair the old CLI in place.
-- Choose a focused Vitest file in the owning layer. Most tests sit beside the implementation; the current storage exception is `src-core/vault.test.ts`, which covers `src-main/vault.ts` and `src-main/store-json.ts`. Prefer pure functions and injected fakes, following `src-main/metadata.test.ts` and `src-main/connection.test.ts`.
+- Choose a focused Vitest file under `apps/desktop/tests/`, in the directory that mirrors the layer you changed (`tests/core`, `tests/main`, `tests/converters`, `tests/renderer`). Tests do not sit beside the implementation; `tests/core/vault.test.ts` remains the cross-layer exception because it covers `src-main/vault.ts` and `src-main/store-json.ts`. Prefer pure functions and injected fakes, following `tests/main/metadata.test.ts` and `tests/main/connection.test.ts`.
 
 ## Quality Check
 

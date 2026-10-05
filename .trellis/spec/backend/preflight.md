@@ -466,14 +466,14 @@ Markdown 表格单元格中的 `|` 用 `\|` 转义（`mdCell`）。
 
 ## 12. 测试要求
 
-- `src-core/preflight-ddl.test.ts`：
+- `tests/core/preflight-ddl.test.ts`：
   - `classifyDdl` 覆盖 17 种 `DdlOp` + `OTHER`，含复合 ALTER、大小写、反引号包裹、``dbl`` 转义、`CHANGE` 无 COLUMN 关键字；
   - `versionAtLeast` 覆盖 `X.Y.Z` / `X.Y.Z.N` 前缀比较、`8.0.36-0ubuntu` 后缀、非法字符串、缺位补 0；
   - `lookupOnlineDdl` 覆盖 MySQL 5.7 / 8.0.11 / 8.0.12 / 8.0.28 / 8.0.29 / 8.0.36 六个版本 × 至少 10 种 DdlOp，含 `MIN_VERSION` 边界与 `OTHER → null`；
-- `src-core/preflight-rules.test.ts`：9 条规则各自独立测试（含正面 `LARGE_TABLE_INSTANT_ADD`、`read_only` 多形态真值识别、`GTID_MISMATCH` 中间态、`NO_UNIQUE_INDEX_AFTER_CHANGE` 的 PRIMARY/UNIQUE 分支）；
-- `src-core/preflight.test.ts`：`deriveVerdict` 优先级四分支、`buildPreflightReport` byte 稳定、`preflightToMarkdown` 章节齐全、`preflightFileNames` 冒号与点替换、保密声明存在；
-- `src-main/preflight-collect.test.ts`：6 个采集函数各自的正常路径与 3 类失败路径（`permission-denied` / 一般查询失败 / 空结果）；批处理失败只降级该批；`SHOW REPLICA STATUS` → `SHOW SLAVE STATUS` 降级；`SHOW GRANTS` 查询失败时 `reliable:false / visibility:partial`；
-- `src-main/preflight-run.test.ts`：节点不存在 throw、pool 建池失败返回最小未知报告、AbortSignal 检查、8 阶段顺序与进度回调、`finally` 关闭池不掩盖结果、`grep` 硬约束（无 `pool.query(diffItem.sql)`、无 `pt-online-schema-change` / `gh-ost` / `cut-over`）；
+- `tests/core/preflight-rules.test.ts`：9 条规则各自独立测试（含正面 `LARGE_TABLE_INSTANT_ADD`、`read_only` 多形态真值识别、`GTID_MISMATCH` 中间态、`NO_UNIQUE_INDEX_AFTER_CHANGE` 的 PRIMARY/UNIQUE 分支）；
+- `tests/core/preflight.test.ts`：`deriveVerdict` 优先级四分支、`buildPreflightReport` byte 稳定、`preflightToMarkdown` 章节齐全、`preflightFileNames` 冒号与点替换、保密声明存在；
+- `tests/main/preflight-collect.test.ts`：6 个采集函数各自的正常路径与 3 类失败路径（`permission-denied` / 一般查询失败 / 空结果）；批处理失败只降级该批；`SHOW REPLICA STATUS` → `SHOW SLAVE STATUS` 降级；`SHOW GRANTS` 查询失败时 `reliable:false / visibility:partial`；
+- `tests/main/preflight-run.test.ts`：节点不存在 throw、pool 建池失败返回最小未知报告、AbortSignal 检查、8 阶段顺序与进度回调、`finally` 关闭池不掩盖结果、`grep` 硬约束（无 `pool.query(diffItem.sql)`、无 `pt-online-schema-change` / `gh-ost` / `cut-over`）；
 - 全量门禁：`npm run typecheck` / `npm run lint` / `npm test` / `npm run build`（在 `apps/desktop` 下）。
 
 ## 13. 与 Manifest 的边界
@@ -603,7 +603,7 @@ UI 端（`App.tsx:handleExportPreflight`）通过 `saveTextFiles` 一次保存�
 
 ### 14.8 测试
 
-新增 `apps/desktop/src-core/preflight-exec.test.ts`（≥10 项），覆盖：
+新增 `apps/desktop/tests/core/preflight-exec.test.ts`（≥10 项），覆盖：
 
 - `parseInferenceStatement` 三种典型 statement（INSTANT/SHARED、INPLACE/EXCLUSIVE、INPLACE/SHARED (rebuild)）
 - `deriveDecision` 三态（BLOCK / DEGRADED / GO）
@@ -692,7 +692,7 @@ report → deriveSuggestedEdits → 预览 diff（原文 → 建议）→ window
 
 ### 16.6 测试
 
-- `src-core/preflight-linkage.test.ts`：`normalizeDdl`（大小写/空白/反引号/分号）+ `diffItemIdOfSuggestion` + `deriveSuggestedEdits`（命中 / 非本规则 / 无 inference / 非 ADD_COLUMN / 归一化 / 空报告）+ `applySuggestedEdit`（命中改写 / 归一化命中 / 表不一致 miss / 已含 ALGORITHM 幂等 / 空串）+ executive 新节（有表 / 无占位 / 节顺序建议动作→加速建议→DDL 分组）。
+- `tests/core/preflight-linkage.test.ts`：`normalizeDdl`（大小写/空白/反引号/分号）+ `diffItemIdOfSuggestion` + `deriveSuggestedEdits`（命中 / 非本规则 / 无 inference / 非 ADD_COLUMN / 归一化 / 空报告）+ `applySuggestedEdit`（命中改写 / 归一化命中 / 表不一致 miss / 已含 ALGORITHM 幂等 / 空串）+ executive 新节（有表 / 无占位 / 节顺序建议动作→加速建议→DDL 分组）。
 
 ## 17. 多次 preflight 历史对比（10-04-history-diff）
 
@@ -767,11 +767,11 @@ interface PreflightDiff {
 
 ### 17.7 测试
 
-- `src-core/preflight-history.test.ts`（9 项）：新增 / 消失 / 等级变化 / verdict 翻转 /
+- `tests/core/preflight-history.test.ts`（9 项）：新增 / 消失 / 等级变化 / verdict 翻转 /
   无变化空 diff / v1 旧报告回填 / 分组键与同组判定 / 条目守卫（合法+非法）。
-- `src-main/preflight-history-store.test.ts`（7 项）：回环排序 / 同组 10 份滚动 /
+- `tests/main/preflight-history-store.test.ts`（7 项）：回环排序 / 同组 10 份滚动 /
   跨组互不影响 / 同 id 去重后置顶 / 非法 throw / get+clear / 无秘密入库扫描。
-- `src-main/preflight-run-history.test.ts`（3 项）：成功 append 一次（含字段与无秘密断言）/
+- `tests/main/preflight-run-history.test.ts`（3 项）：成功 append 一次（含字段与无秘密断言）/
   append 抛错隔离（主流程照常返回）/ aborted 不写。
 
 ### 17.8 回滚

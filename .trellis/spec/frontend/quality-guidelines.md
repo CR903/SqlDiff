@@ -13,11 +13,11 @@ npm run build
 
 The project has Vitest but no React Testing Library, jsdom suite, snapshot framework, or accessibility automation. Renderer tests therefore focus on deterministic pure helpers:
 
-- `src-renderer/node-filter.test.ts` covers left-tab and keyword behavior;
-- `src-renderer/sql.test.ts` covers highlighter span behavior and export ordering (the current suite has no raw HTML-metacharacter case);
-- `src-renderer/demo-source.test.ts` and `store-source-split.test.ts` cover the source marker, the "silent when nothing was skipped/limited" conditions, and the `visibility` state transitions;
-- shared filter behavior is covered in `src-core/verb-search.test.ts` and `src-core/ddl-dml-index.test.ts`;
-- grant-shape parsing is covered in `src-core/visibility.test.ts` and the narrowing plus the false-`DROP` regression in `src-main/compare-run-visibility.test.ts`. Keep the "before narrowing" control case: it is what proves the regression test can still fail.
+- `tests/renderer/node-filter.test.ts` covers left-tab and keyword behavior;
+- `tests/renderer/sql.test.ts` covers highlighter span behavior and export ordering (the current suite has no raw HTML-metacharacter case);
+- `tests/renderer/demo-source.test.ts` and `store-source-split.test.ts` cover the source marker, the "silent when nothing was skipped/limited" conditions, and the `visibility` state transitions;
+- shared filter behavior is covered in `tests/core/verb-search.test.ts` and `tests/core/aspect-index.test.ts`;
+- grant-shape parsing is covered in `tests/core/visibility.test.ts` and the narrowing plus the false-`DROP` regression in `tests/main/compare-run-visibility.test.ts`. Keep the "before narrowing" control case: it is what proves the regression test can still fail.
 
 Add a focused renderer test for filter, formatting, storage parsing, or state-independent helper changes. Do not add a shallow snapshot that merely repeats JSX structure.
 

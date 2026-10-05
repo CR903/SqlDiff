@@ -7,5 +7,5 @@
     "outDir": "dist-main",
     "rootDir": "."
   },
-  "include": ["src-main", "src-core"]
+  "include": ["src-main", "src-core", "tests"]
 }

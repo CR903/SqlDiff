@@ -77,7 +77,7 @@ All errors are domain-prefixed and may be shown after `sanitizeIpcError` at the 
 
 ## 6. Tests Required
 
-- `src-main/converters/dbeaver.test.ts` must assert direct, password-SSH, private-key-SSH, multi-node deterministic ordering, duplicate/empty/invalid input, warning behavior, and a sentinel-polluted object with no secret output.
+- `tests/converters/dbeaver.test.ts` must assert direct, password-SSH, private-key-SSH, multi-node deterministic ordering, duplicate/empty/invalid input, warning behavior, and a sentinel-polluted object with no secret output.
 - The full gate must run `npm run typecheck`, `npm run lint`, `npm test`, and `npm run build` from `apps/desktop`.
 - UI/export changes require a trusted CDP pass: open the selection modal, toggle all/none, click export with `Input.dispatchMouseEvent`, accept the native save dialog, and verify the file exists at the returned path and parses as the returned JSON.
 - The CDP harness remains temporary; persist only the report and non-sensitive evidence.
