@@ -205,7 +205,7 @@ spec 要么静默 skip（看不出原因），要么**连到错误的那台机�
 
 ### 断言清单（11 项）
 
-1. `schemaVersion === 1`
+1. `schemaVersion === 2`（`assertReportStructure` 实际断言；见 `preflight.md` §15 schema v2）
 2. `server.mysql_version` fact 与 fixture 版本一致
 3. `table.users_big.rows` fact > 0（information_schema 估算值）
 4. ADD_COLUMN Inference `algorithm === 'INSTANT'`（8.0.46 侧；5.7 侧见 `assertInplaceBaseline`）

@@ -35,7 +35,7 @@ Source of truth：
 
 | 字段 | 类型 | 语义 |
 |---|---|---|
-| `schemaVersion` | `1 as const` | 报告 schema 版本；`PREFLIGHT_REPORT_VERSION` 常量 |
+| `schemaVersion` | `2 as const` | 报告 schema 版本；`PREFLIGHT_REPORT_VERSION` 常量（schema v2 见 §15） |
 | `appVersion` | `string` | 主进程 `process.versions.electron`，缺省 `'unknown'` |
 | `checkedAt` | `string` | ISO 时间戳（`buildPreflightReport` 默认 `new Date().toISOString()`，测试可注入） |
 | `targetAlias` | `string` | 目标库 B 的节点别名 |

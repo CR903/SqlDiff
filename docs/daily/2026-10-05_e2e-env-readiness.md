@@ -46,6 +46,10 @@
 
 **⑤ 服务器 SSH 传长 SQL 会卡**：反引号与多层引号被 shell 吃掉，且长命令触发 expect 超时。改为逐条执行短 SQL（`sqldiff@"%"` 双引号形式可避开反引号）。
 
+**⑥ spec 里 `schemaVersion` 口径整体停在 v1**（spec 更新阶段发现，任务外漂移）：3 处写 `=== 1`，而常量 `PREFLIGHT_REPORT_VERSION` 早已是 `2`（schema v2 在更早的 `preflight.md` §15 就落地了）。其中 `frontend/quality-guidelines.md:69` 尤其危险——它指导未来写的 UI 导出测试去断言 `=== 1`，照做必然失败。另两处在 §14.9「回滚」标题下，是对当时任务的历史陈述，**故意不改**（改了等于伪造历史）。
+
+**规律**：这次漂移和前一轮 `mysqldiff/` 引用漂移同源——**spec 里写死的常量值比代码更难发现**，因为它读起来像事实陈述，不像待更新的占位符。改代码时顺手核一遍 spec 里的字面量断言。
+
 ## 可沉淀知识
 
 已写入 [`docs/knowledge/common/best-practices/e2e-env-config.md`](../knowledge/common/best-practices/e2e-env-config.md)（并入 `common/best-practices` 现有分类，未新建分类）：
