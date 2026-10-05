@@ -1,4 +1,4 @@
-// runCompareRequest 应用服务集成测试（cleanup / cancel / 结构+数据混合输出 / manifest 衔接）。
+// runCompareRequest 应用服务集成测试（cleanup / cancel / 结构+数据混合输出 / 仅数据 scope / manifest 衔接）。
 //
 // mock 边界（design.md）：store-json.loadNodes+appendHistory / connection.createMysqlPool /
 // metadata.fetchMetadata+showCreateTable / data-fetch.fetchAllByPK+getRowCount / grants.assessVisibility。
@@ -42,6 +42,15 @@ const DDL_PK = [
 
 const DDL_VIEW_A = 'CREATE VIEW `v_report` AS SELECT `id`, `a` FROM `t`';
 const DDL_VIEW_B = 'CREATE VIEW `v_report` AS SELECT `id` FROM `t`';
+
+// A 侧比 B 多一列：结构 scope 生效时必然产出 table CHANGE，「仅数据」用例靠它做反证。
+const DDL_TABLE_WITH_NAME = [
+  'CREATE TABLE `users` (',
+  '  `id` int NOT NULL,',
+  '  `name` varchar(20) NOT NULL,',
+  '  PRIMARY KEY (`id`)',
+  ') ENGINE=InnoDB',
+].join('\n');
 
 function node(id: string, alias: string, database: string): NodeMeta {
   return {
@@ -248,6 +257,51 @@ describe('runCompareRequest 集成', () => {
     expect(res.stats.ALL).toBe(0);
     expect(poolA.end).toHaveBeenCalled();
     expect(poolB.end).toHaveBeenCalled();
+  });
+
+  it('仅数据 scope（取消全部结构类型）：只产 DML 差异，不产任何结构差异（10-05 静默越权回归）', async () => {
+    const poolA1 = fakePool();
+    const poolB1 = fakePool();
+    const poolA2 = fakePool();
+    const poolB2 = fakePool();
+    vi.mocked(createMysqlPool)
+      .mockResolvedValueOnce(poolA1 as unknown as Pool)
+      .mockResolvedValueOnce(poolB1 as unknown as Pool)
+      .mockResolvedValueOnce(poolA2 as unknown as Pool)
+      .mockResolvedValueOnce(poolB2 as unknown as Pool);
+
+    // A/B 存在表列差异 + 视图差异：只要 scopes 被静默补全成四类全开，下面两条断言就会红。
+    const snapA = snapshot({ tables: { users: DDL_TABLE_WITH_NAME }, views: { v_report: DDL_VIEW_A } });
+    const snapB = snapshot({ tables: { users: DDL_PK }, views: { v_report: DDL_VIEW_B } });
+    vi.mocked(fetchMetadata).mockResolvedValueOnce(snapA).mockResolvedValueOnce(snapB);
+    vi.mocked(fetchAllByPK).mockImplementation(async (db) => (db === asDb(poolA2) ? [{ id: 1 }] : []));
+
+    // store 的发出形态：结构 scopes 为空 + includeData → scopes 仅携带 'data'。
+    const req: CompareRequest = { aId: 'a', bId: 'b', scopes: ['data'], includeData: true };
+    const res = await runCompareRequest(req, ctx);
+
+    expect(res.dataTables?.map((t) => ({ a: t.a, status: t.status }))).toEqual([
+      { a: 'users', status: 'done' },
+    ]);
+    // 数据行差异照常产出（「空结构范围」不能把数据也一起吃掉）。
+    expect(
+      res.items.some((i) => i.objectType === 'data' && i.objectName === 'users' && i.dml === 'INSERT'),
+    ).toBe(true);
+    // 核心断言：没有任何结构差异条目。
+    expect(res.items.filter((i) => i.objectType !== 'data')).toEqual([]);
+    expect(res.stats.ALL).toBe(1);
+    expect(res.stats.CHANGE).toBe(0);
+    expect(res.stats.DML).toEqual({ INSERT: 1, DELETE: 0, UPDATE: 0 });
+    // 结构既未比较，覆盖报告如实记 0，且没有「未检查对象」误报。
+    expect(res.coverage?.ok).toEqual({ table: 0, view: 0, procedure: 0, function: 0 });
+    expect(res.coverage?.skipped).toEqual([]);
+    expect(res.visibility?.compared).toBe(0);
+    expect(res.visibility?.excluded).toEqual([]);
+
+    expect(poolA1.end).toHaveBeenCalled();
+    expect(poolB1.end).toHaveBeenCalled();
+    expect(poolA2.end).toHaveBeenCalled();
+    expect(poolB2.end).toHaveBeenCalled();
   });
 
   it('全链路输出可喂 buildManifest（AC5）', async () => {

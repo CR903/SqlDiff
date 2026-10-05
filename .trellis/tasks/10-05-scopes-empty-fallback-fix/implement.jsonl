@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "测试门禁：每个功能必须带测试，fail-safe 类改动必须补对抗用例"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "只读边界与 scopes/data 语义"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "renderer store 改动约定"}

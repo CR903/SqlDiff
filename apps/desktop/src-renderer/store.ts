@@ -628,6 +628,9 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
             ? ` · 数据 ${result.dataTables.length} 表（I${result.stats.DML.INSERT}/D${result.stats.DML.DELETE}/U${result.stats.DML.UPDATE}）`
             : '';
         const needConfirm = (result.dataTables ?? []).some((t) => t.status === 'confirm-needed');
+        // 执行范围如实拼接：结构为空时不能输出误导性的前导斜杠（`· /data`），
+        // 该文案会写进历史，用户据此判断这次到底比了什么。
+        const ranScopes = [...scopes, ...(includeData ? ['data' as const] : [])].join('/');
         set({
           items: result.items,
           stats: result.stats,
@@ -643,7 +646,7 @@ export const useDesktopStore = create<DesktopState>()((set, get) => ({
           resultError: null,
           lastPreflightResult: null,
           preflightRunning: false,
-          lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · ${scopes.join('/')}${includeData ? '/data' : ''} · ${new Date().toLocaleTimeString()} · ${result.stats.ALL} 条差异${dataNote}`,
+          lastComboText: `${aliasOf(slotA)} → ${aliasOf(slotB)} · ${ranScopes} · ${new Date().toLocaleTimeString()} · ${result.stats.ALL} 条差异${dataNote}`,
           toast: needConfirm
             ? '对比完成：部分大表超阈待确认，请二次确认后重跑'
             : `对比完成：发现 ${result.stats.ALL} 条差异${dataNote}`,

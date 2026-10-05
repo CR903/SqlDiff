@@ -18,12 +18,38 @@ import type {
 
 export const ALL_SCOPES: ObjectType[] = ['table', 'view', 'procedure', 'function'];
 
+/**
+ * 结构类型集合：归一时把任意输入收敛成 `ObjectType[]` 的唯一依据。
+ * 与 `ALL_SCOPES` 同源而非另抄一份字面量——两处词表一旦漂移，
+ * 「合法选择」与「fail-safe 判据」就会指向不同的集合，修复静默失效。
+ */
+const STRUCTURE_TYPES: ReadonlySet<string> = new Set<string>(ALL_SCOPES);
+
+/** `CompareRequest.scopes` 的合法取值域：四种结构类型 + 数据开关。 */
+const ALL_SCOPE_TOKENS: ReadonlySet<unknown> = new Set<unknown>([...ALL_SCOPES, 'data']);
+
+/**
+ * 归一外部传入的 scopes（不可信 IPC 输入）→ 结构 ObjectType 列表。
+ *
+ * 关键语义是区分两种「空」（10-05 修复的静默越权：只勾数据却被静默补全成四类全开）：
+ * - **显式空** —— `[]`，或只带 `'data'` 这类非结构词表项（如「只比数据」的请求）→ 返回 `[]`，
+ *   **不补全**。用户没勾结构类型就是没勾，替他补全等于执行了他没勾的东西，
+ *   而界面与历史都显示成「只比数据」，事后无从发现。
+ * - **无法解释** —— `null` / `undefined` / 非数组 / 数组内全是词表外的垃圾值 → 回落
+ *   `ALL_SCOPES`。IPC 边界的 fail-safe 不因上面的修复而退化：请求看不懂就比全量，
+ *   而不是静默什么都不比。
+ *
+ * 区分点不是「过滤后还剩几个」，而是「原数组是否非空且至少含一个已知词表值」：
+ * `['data']` 过滤后同样是空数组，但它表达的是合法意图。
+ */
 export function normalizeScopes(scopes: unknown): ObjectType[] {
   if (!Array.isArray(scopes)) return [...ALL_SCOPES];
-  const kept = (scopes as unknown[]).filter(
-    (s): s is ObjectType => s === 'table' || s === 'view' || s === 'procedure' || s === 'function',
-  );
-  return kept.length > 0 ? [...new Set(kept)] : [...ALL_SCOPES];
+  const raw = scopes as unknown[];
+  if (raw.length === 0) return [];
+  const kept = raw.filter((s): s is ObjectType => typeof s === 'string' && STRUCTURE_TYPES.has(s));
+  // 词表外垃圾值（['bogus'] / [true, 123]）：既非合法选择也无法推断意图 → fail-safe 全开。
+  if (!raw.some((s) => ALL_SCOPE_TOKENS.has(s))) return [...ALL_SCOPES];
+  return [...new Set(kept)];
 }
 
 /** 数据对比是否开启：显式开关或 scopes 携带 'data' 任一成立。 */

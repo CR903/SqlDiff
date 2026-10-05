@@ -54,6 +54,30 @@ Preflight reuses the same error classifier (`classifyCoverageReason`) and same p
 - The orchestration paths close their assigned pools in `finally` with `Promise.allSettled`, as in `runCompareRequest`, `runDataCompare`, and the `data.tables` handler. Cleanup failure must not mask the comparison result. Pool construction is assigned only after both `Promise.all` calls settle; if one pool is created before the other fails, the current destructuring pattern has no reference to close, which remains a product cleanup gap rather than a guarantee to document as solved.
 - SSH tunnels are cached by `nodeId`, concurrent `ensureTunnel` calls share an in-flight promise, and `main.ts` invokes `closeAll` from its `before-quit` hook (the hook is not awaited). `pickRandomPort` uses the legacy 32000-35000 range and `ensureTunnel` retries `EADDRINUSE` up to `MAX_TUNNEL_ATTEMPTS`. Pools and temporary ping connections do not own cached tunnels.
 
+## Scopes Normalization: Respect Selection, Keep Fail-Safe
+
+`normalizeScopes` in `src-core/compare-filter.ts` validates untrusted `CompareRequest.scopes`. It must distinguish two kinds of "empty", because conflating them silently executes work the user never selected.
+
+| Input | Result | Reason |
+|---|---|---|
+| `['table','view']` | `['table','view']` (deduped) | Explicit structural selection |
+| `['table','data','view']` | `['table','view']` | `'data'` is a valid token but not a structure type; drop it from the structural result |
+| `['data']` | `[]` | "Compare data only" is a valid intent — an empty structural set, not a missing one |
+| `[]` | `[]` | Explicitly nothing selected |
+| `['data','bogus']` | `[]` | Contains a valid token, so intent is readable; structure set is empty |
+| `null` / `undefined` / `42` / `'table'` / `{}` | `ALL_SCOPES` | Unreadable request → compare everything rather than silently nothing |
+| `['bogus']` / `[true,123]` / `[null]` | `ALL_SCOPES` | Non-empty but no valid token: neither a selection nor readable intent → fail-safe |
+
+**The discriminator is "does the raw array contain at least one known token" (`ALL_SCOPE_TOKENS` = `ALL_SCOPES` + `'data'`), not "how many survive filtering".** `['data']` also filters down to zero, but it expresses a real choice. Derive both the filter predicate and the token set from the single `ALL_SCOPES` source so the filter and the fail-safe check cannot drift apart.
+
+Why this matters: before this contract, `['data']` fell into the same `kept.length === 0` branch as `['bogus']` and returned `ALL_SCOPES`. Unchecking all four structure checkboxes while leaving data checked therefore ran a full structural comparison, while both the UI and `lastComboText` reported `data` — an unrequested operation with no visible trace. A read-only tool must not widen its own scope.
+
+Do not "fix" this by blocking data-only runs in the UI. The IPC path and `compare-run.ts:206` bypass renderer validation, so `normalizeScopes` stays the enforcement point. Downstream, an empty structural set is safe: `filterMetadataByScopes` empties all four maps, `postFilterResult` lets `data` rows bypass the structural filter, `mergeCoverage` reports zero `ok` with no misleading `skipped`, and `resolveDataPairs` reads the **unfiltered** snapshots so data pairing still works.
+
+> **Warning**: `lastComboText` must render the executed scope set, not the checkbox state. Concatenating `scopes.join('/')` with a hardcoded `'/data'` suffix emits a leading-slash `· /data` when no structure type is checked, which hides exactly the condition above.
+>
+> Known follow-up: `hasDataScope` and `normalizeScopes` read the same array through different rules — `'data'` inside `scopes` drives `normalizeScopes`, while `includeData` drives `hasDataScope`. They agree today because the renderer sends both. A caller that sends only `includeData: true` without the token will diverge; prefer sending structural scopes plus `includeData` and treating `'data'` as a compatibility token.
+
 ## Snapshot and Direction Semantics
 
 - A is the source/expected database; B is the target/database to upgrade. `compareRun` and `diffDataRows` generate SQL that changes B toward A.
