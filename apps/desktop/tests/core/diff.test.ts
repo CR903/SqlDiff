@@ -13,6 +13,7 @@ import {
   filterTable,
 } from '../../src-core/diff';
 import { assessRisk } from '../../src-core/risk';
+import { escapeDataIdent } from '../../src-core/data-diff';
 
 const T_USERS = [
   'CREATE TABLE `users` (',
@@ -145,6 +146,97 @@ describe('diffTable 表结构', () => {
   it('索引删除 -> DROP INDEX', () => {
     const sql = diffTable('users', T_USERS_NO_COMMENT, T_USERS_IDX);
     expect(sql).toContain('DROP INDEX `idx_name`');
+  });
+});
+
+describe('标识符转义硬化（10-06-generated-ddl-escape）', () => {
+  // 调用方传入的 name 含反引号时，加倍后仍被单个引用包裹，不跳出。
+  it('表名含反引号：DROP TABLE 不跳出引用', () => {
+    const sql = diffTable('a`b', '', T_USERS);
+    expect(sql).toBe(`DROP TABLE ${escapeDataIdent('a`b')};\n`);
+    expect(sql).toBe('DROP TABLE `a``b`;\n');
+    expect(sql).not.toContain('`a`b`');
+  });
+
+  it('表名含反引号：ADD / DROP / CHANGE COLUMN 全输出点转义', () => {
+    const add = diffTable('a`b', T_USERS_WITH_AGE, T_USERS_NO_COMMENT);
+    expect(add).toContain('ALTER TABLE `a``b` ADD COLUMN `age`');
+    const drop = diffTable('a`b', T_USERS_NO_COMMENT, T_USERS_WITH_AGE);
+    expect(drop).toContain('ALTER TABLE `a``b` DROP COLUMN `age`');
+    const change = diffTable('a`b', T_USERS_NAME_128, T_USERS_NO_COMMENT);
+    expect(change).toContain('ALTER TABLE `a``b` CHANGE COLUMN `name`');
+  });
+
+  it('表名含反引号：主键与索引输出点转义', () => {
+    const pk = diffTable('a`b', T_USERS_PK2, T_USERS_NO_COMMENT);
+    expect(pk).toContain('ALTER TABLE `a``b` DROP PRIMARY KEY,ADD PRIMARY KEY');
+    const addIdx = diffTable('a`b', T_USERS_IDX, T_USERS_NO_COMMENT);
+    expect(addIdx).toContain('ALTER TABLE `a``b` ADD INDEX `idx_name`');
+    const dropIdx = diffTable('a`b', T_USERS_NO_COMMENT, T_USERS_IDX);
+    expect(dropIdx).toContain('ALTER TABLE `a``b` DROP INDEX `idx_name`');
+  });
+
+  it('例程名含反引号：DROP PROCEDURE / DROP VIEW 不跳出引用', () => {
+    expect(diffProcedure('p`1', '', PROC_V1, 'PROCEDURE')).toBe(
+      `DROP PROCEDURE ${escapeDataIdent('p`1')};\n`,
+    );
+    expect(diffProcedure('v`1', '', VIEW_V1, 'VIEW')).toBe(
+      `DROP VIEW ${escapeDataIdent('v`1')};\n`,
+    );
+    const chg = diffProcedure('p`1', PROC_V2, PROC_V1, 'PROCEDURE');
+    expect(chg).toContain('DROP PROCEDURE `p``1`;');
+  });
+
+  it('表名含反引号：单独 ADD PK / 单独 DROP PK 转义', () => {
+    const noPk = [
+      'CREATE TABLE `t` (',
+      '  `id` int(11) NOT NULL,',
+      '  `name` varchar(64) NOT NULL',
+      ') ENGINE=InnoDB DEFAULT CHARSET=utf8',
+    ].join('\n');
+    const withPk = [
+      'CREATE TABLE `t` (',
+      '  `id` int(11) NOT NULL,',
+      '  `name` varchar(64) NOT NULL,',
+      '  PRIMARY KEY (`id`)',
+      ') ENGINE=InnoDB DEFAULT CHARSET=utf8',
+    ].join('\n');
+    expect(diffTable('a`b', withPk, noPk)).toContain('ALTER TABLE `a``b` ADD PRIMARY KEY');
+    expect(diffTable('a`b', noPk, withPk)).toContain('ALTER TABLE `a``b` DROP PRIMARY KEY;');
+  });
+
+  it('targetUser 含反引号：DEFINER 重写不跳出引用', () => {
+    const out = changeProcedure(PROC_V1, '', 'PROCEDURE', 'r`oot');
+    expect(out).toContain('DEFINER=`r``oot`@');
+    expect(out).not.toContain('DEFINER=`r`oot`@');
+  });
+
+  // 服务端片段保持原文回填：SHOW CREATE 已加倍的反引号不得再加倍。
+  it('列定义含转义反引号：服务端片段原文回填，不二次加倍', () => {
+    const t1 = [
+      'CREATE TABLE `t` (',
+      '  `id` int(11) NOT NULL,',
+      '  `a``b` int(11) DEFAULT NULL,',
+      '  PRIMARY KEY (`id`)',
+      ') ENGINE=InnoDB DEFAULT CHARSET=utf8',
+    ].join('\n');
+    const t2 = [
+      'CREATE TABLE `t` (',
+      '  `id` int(11) NOT NULL,',
+      '  PRIMARY KEY (`id`)',
+      ') ENGINE=InnoDB DEFAULT CHARSET=utf8',
+    ].join('\n');
+    expect(diffTable('t', t1, t2)).toContain('ADD COLUMN `a``b` int(11) DEFAULT NULL');
+    expect(diffTable('t', t2, t1)).toContain('DROP COLUMN `a``b`');
+  });
+
+  // 常规标识符 byte-stable：与历史 mysqldiff 语义逐字节一致（AC2 锁定）。
+  it('常规名输出逐字节不变（历史语义锁定）', () => {
+    expect(diffTable('orders', '', T_USERS)).toBe('DROP TABLE `orders`;\n');
+    expect(diffProcedure('p1', '', PROC_V1, 'PROCEDURE')).toBe('DROP PROCEDURE `p1`;\n');
+    expect(diffTable('users', T_USERS_WITH_AGE, T_USERS_NO_COMMENT)).toContain(
+      'ALTER TABLE `users` ADD COLUMN `age` int(11) DEFAULT NULL;',
+    );
   });
 });
 
@@ -383,7 +475,8 @@ describe('diffTableField 畸形输入不抛', () => {
     expect(typeof diffTableField('', T_MIN_EXTRA, T_MIN)).toBe('string');
   });
 
-  it('表名含反引号（与 escapeDataIdent 不同：此处是 legacy 插值）→ 不抛', () => {
+  it('表名含反引号 → 转义后仍不抛（escapeDataIdent 加倍）', () => {
     expect(() => diffTableField('we`ird', T_MIN_EXTRA, T_MIN)).not.toThrow();
+    expect(diffTableField('we`ird', T_MIN_EXTRA, T_MIN)).toContain('ALTER TABLE `we``ird`');
   });
 });

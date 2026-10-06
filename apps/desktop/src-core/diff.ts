@@ -13,6 +13,11 @@
 //
 // 纯函数：不连 DB。changeProcedure 的 DEFINER 归一需要目标库用户名时
 // 由调用方经 `targetUser` 传入（老代码取 `db2.getUser()`）；不传则原样返回。
+//
+// 转义（10-06-generated-ddl-escape）：调用方传入的标识符（表名/例程名/DEFINER 用户名）在
+// 包反引号前经 `escapeDataIdent` 做反引号加倍；SHOW CREATE 服务端片段保持原文回填。
+
+import { escapeDataIdent } from './data-diff';
 
 export type RoutineKind = 'PROCEDURE' | 'FUNCTION' | 'VIEW';
 
@@ -57,7 +62,7 @@ export function diffTable(
   if (t1 === t2) return null;
 
   if (t1 !== '' && t2 === '') return `${raw1};\n`;
-  if (t1 === '' && t2 !== '') return `DROP TABLE \`${name}\`;\n`;
+  if (t1 === '' && t2 !== '') return `DROP TABLE ${escapeDataIdent(name)};\n`;
 
   return diffTableField(name, raw1, raw2);
 }
@@ -139,20 +144,22 @@ export function diffTableField(name: string, table1: string, table2: string): st
     if (c3 === c4) continue;
 
     if (c3 !== '' && c4 === '') {
-      sql += `ALTER TABLE \`${name}\` ADD COLUMN ${c1};\n`;
+      sql += `ALTER TABLE ${escapeDataIdent(name)} ADD COLUMN ${c1};\n`;
       continue;
     }
     if (c3 === '' && c4 !== '') {
-      sql += `ALTER TABLE \`${name}\` DROP COLUMN ${c};\n`;
+      sql += `ALTER TABLE ${escapeDataIdent(name)} DROP COLUMN ${c};\n`;
       continue;
     }
-    sql += `ALTER TABLE \`${name}\` CHANGE COLUMN ${c} ${c1};\n`;
+    sql += `ALTER TABLE ${escapeDataIdent(name)} CHANGE COLUMN ${c} ${c1};\n`;
   }
 
-  if (pk1 !== '' && pk2 === '') sql += `ALTER TABLE \`${name}\` ADD PRIMARY KEY ${pk1};\n`;
-  if (pk1 === '' && pk2 !== '') sql += 'ALTER TABLE `' + name + '` DROP PRIMARY KEY;\n';
+  if (pk1 !== '' && pk2 === '')
+    sql += `ALTER TABLE ${escapeDataIdent(name)} ADD PRIMARY KEY ${pk1};\n`;
+  if (pk1 === '' && pk2 !== '')
+    sql += `ALTER TABLE ${escapeDataIdent(name)} DROP PRIMARY KEY;\n`;
   if (pk1 !== '' && pk2 !== '' && pk1 !== pk2)
-    sql += `ALTER TABLE \`${name}\` DROP PRIMARY KEY,ADD PRIMARY KEY ${pk1};\n`;
+    sql += `ALTER TABLE ${escapeDataIdent(name)} DROP PRIMARY KEY,ADD PRIMARY KEY ${pk1};\n`;
 
   for (let i = 0, len = key.length; i < len; i++) {
     const k = key[i];
@@ -161,12 +168,12 @@ export function diffTableField(name: string, table1: string, table2: string): st
     if (k1 === k2) continue;
 
     if (k1 && !k2) {
-      sql += `ALTER TABLE \`${name}\` ADD INDEX ${k};\n`;
+      sql += `ALTER TABLE ${escapeDataIdent(name)} ADD INDEX ${k};\n`;
       continue;
     }
     if (!k1 && k2) {
       const kname = k.split(' ')[0];
-      sql += `ALTER TABLE \`${name}\` DROP INDEX ${kname};\n`;
+      sql += `ALTER TABLE ${escapeDataIdent(name)} DROP INDEX ${kname};\n`;
       continue;
     }
   }
@@ -199,7 +206,7 @@ export function changeProcedure(
 ): string {
   if (!proc2) {
     if (!targetUser) return proc1;
-    return proc1.replace(/ DEFINER=`.*`@/g, ` DEFINER=\`${targetUser}\`@`);
+    return proc1.replace(/ DEFINER=`.*`@/g, ` DEFINER=${escapeDataIdent(targetUser)}@`);
   }
   const single = new RegExp(` DEFINER=.* ${ex}`, 'i');
   const m = proc2.match(single);
@@ -231,12 +238,12 @@ export function diffProcedure(
 
   if (p1 !== '' && p2 === '')
     return `DELIMITER ;;\n${changeProcedure(raw1, raw2, ex, targetUser)} ;;\nDELIMITER ;\n`;
-  if (p1 === '' && p2 !== '') return `DROP ${ex} \`${name}\`;\n`;
+  if (p1 === '' && p2 !== '') return `DROP ${ex} ${escapeDataIdent(name)};\n`;
 
   if (ex === 'VIEW') {
     let proc = changeProcedure(raw1, raw2, ex, targetUser);
     proc = proc.replace('CREATE', 'CREATE OR REPLACE');
     return `${proc};\n`;
   }
-  return `DROP ${ex} \`${name}\`;\nDELIMITER ;;\n${changeProcedure(raw1, raw2, ex, targetUser)} ;;\nDELIMITER ;\n`;
+  return `DROP ${ex} ${escapeDataIdent(name)};\nDELIMITER ;;\n${changeProcedure(raw1, raw2, ex, targetUser)} ;;\nDELIMITER ;\n`;
 }

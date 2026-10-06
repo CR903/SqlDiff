@@ -8,6 +8,7 @@
 
 | 日期 | 任务 | 一句话 |
 |---|---|---|
+| 2026-10-06 | [generated-ddl-escape](./daily/2026-10-06_generated-ddl-escape.md) | 结构 DDL 转义硬化：diff.ts 11 处 escapeDataIdent，常规输出 byte-stable；907 项全绿 |
 | 2026-10-06 | [guard-tighten-comment-fix](./daily/2026-10-06_guard-tighten-comment-fix.md) | 守卫收紧：port 对齐写侧 1–65535、id 非空、diffCount 有限数；899 项全绿 |
 | 2026-10-05 | [contract-test-landing](./daily/2026-10-05_contract-test-landing.md) | 父任务集成复核：748 → 887 项（+139），产品代码零改动；规划期抓 5 处 spec 漂移，记录 generated DDL 未转义边界 |
 | 2026-10-05 | [export-e2e-landing](./daily/2026-10-05_export-e2e-landing.md) | 补齐 §11.1 保密硬边界断言（Preflight 四产物 + Manifest，全仓首次）+ 导出按钮真机 UI E2E；终审发现 Playwright trace 不掩码密码，已默认关 trace |
