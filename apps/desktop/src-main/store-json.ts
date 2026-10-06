@@ -70,7 +70,9 @@ export function isNodeMeta(v: unknown): v is NodeMeta {
     typeof v.host === 'string' &&
     typeof v.user === 'string' &&
     typeof v.database === 'string' &&
-    typeof v.port === 'number' &&
+    Number.isInteger(v.port) &&
+    (v.port as number) >= 1 &&
+    (v.port as number) <= 65535 &&
     typeof v.createdAt === 'string' &&
     isRecord(v.ssh)
   );
@@ -80,10 +82,11 @@ export function isHistoryEntry(v: unknown): v is HistoryEntry {
   if (!isRecord(v)) return false;
   return (
     typeof v.id === 'string' &&
+    v.id.length > 0 &&
     typeof v.at === 'string' &&
     typeof v.aAlias === 'string' &&
     typeof v.bAlias === 'string' &&
-    typeof v.diffCount === 'number'
+    Number.isFinite(v.diffCount)
   );
 }
 
@@ -175,7 +178,7 @@ export function getPreflightHistoryEntry(
   return loadPreflightHistory(userDataDir).find((h) => h.id === id) ?? null;
 }
 
-/** 清空 preflight 历史（删文件即清空，无迁移脚本）。 */
+/** 清空 preflight 历史（写空数组即清空，文件保留；与 clearHistory 同语义）。 */
 export function clearPreflightHistory(userDataDir?: string): void {
   writeJsonFileAtomic(preflightHistoryFilePath(userDataDir), []);
 }

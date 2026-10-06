@@ -97,15 +97,19 @@ describe('isNodeMeta 判别矩阵', () => {
     expect(isNodeMeta({ ...VALID_NODE, port: '3306' })).toBe(false);
   });
 
-  // 口径说明：守卫只判 typeof，端口范围**不由 validateNode 兜底**——
-  // connection.ts:114-121 的 validateNode 只查 host/user/database，没有端口判据。
-  // 真正的范围约束在**写入面** main.ts:buildNodeMeta → normalizePort（1-65535 整数），
-  // 所以产品自身写出的 nodes.json 端口必然合法，本守卫放宽到 typeof 不会引入实际坏值。
-  // 残留面：手工改坏 nodes.json 塞进 NaN/Infinity 能过 loadNodes 过滤，
-  // 但下游 mysql2 建连即失败（testConnection 返回结构化错误），不会静默出错 —— 详见任务报告的产品观察。
-  it('port 为 NaN / Infinity → 接受（守卫只判 typeof；写入面已保证范围合法）', () => {
-    expect(isNodeMeta({ ...VALID_NODE, port: Number.NaN })).toBe(true);
-    expect(isNodeMeta({ ...VALID_NODE, port: Number.POSITIVE_INFINITY })).toBe(true);
+  // 口径说明（10-06-guard-tighten-comment-fix D1）：读侧与写侧对齐 1–65535 整数——
+  // main.ts:buildNodeMeta → normalizePort 在写入面已保证合法，读侧收紧只影响手改坏的
+  // nodes.json（以前能加载、连库时才报结构化错误，现在读侧直接过滤）。下游不再依赖
+  // mysql2 的报错做兜底。
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1, 0, 65536, 70000, 1.5])(
+    'port 为 %s → 拒绝（须为 1–65535 整数）',
+    (port) => {
+      expect(isNodeMeta({ ...VALID_NODE, port })).toBe(false);
+    },
+  );
+
+  it.each([1, 22, 3306, 65535])('port 为 %s → 接受（边界内整数）', (port) => {
+    expect(isNodeMeta({ ...VALID_NODE, port })).toBe(true);
   });
 
   it('ssh 为空对象 {} → 接受（isRecord 只看形状，不看字段）', () => {
@@ -180,17 +184,19 @@ describe('isHistoryEntry 判别矩阵（IPC 入口校验面）', () => {
     expect(isHistoryEntry({ ...VALID_HISTORY, [field]: null })).toBe(false);
   });
 
-  // diffCount 是唯一带 typeof 判别的字段；用字符串/NaN 锁住"必须是数字"
-  it('diffCount 为数字字符串 → 拒绝（typeof 边界）', () => {
-    expect(isHistoryEntry({ ...VALID_HISTORY, diffCount: '3' })).toBe(false);
-  });
+  // diffCount 须为有限数（10-06-guard-tighten-comment-fix D2）：NaN / Infinity 无统计意义，
+  // 上游只保证 typeof number，读侧用 isFinite 挡掉非有限值。
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'diffCount 为 %s → 拒绝（须为有限数）',
+    (diffCount) => {
+      expect(isHistoryEntry({ ...VALID_HISTORY, diffCount })).toBe(false);
+    },
+  );
 
-  it('diffCount 为 NaN → 接受（typeof number；统计语义由上游保证）', () => {
-    expect(isHistoryEntry({ ...VALID_HISTORY, diffCount: Number.NaN })).toBe(true);
-  });
-
-  it('id 为空串 → 接受（HistoryEntry 无 length 约束，与 NodeMeta 不同）', () => {
-    expect(isHistoryEntry({ ...VALID_HISTORY, id: '' })).toBe(true);
+  // id 空串此前被接受，但 appendHistory 按 id 去重置顶——空串会把所有空 id 条目折叠成一条。
+  // 与 isNodeMeta.id 的 length > 0 对齐（10-06-guard-tighten-comment-fix R2）。
+  it('id 为空串 → 拒绝（length > 0 边界；空串会破坏 appendHistory 去重）', () => {
+    expect(isHistoryEntry({ ...VALID_HISTORY, id: '' })).toBe(false);
   });
 
   it.each<unknown>([
