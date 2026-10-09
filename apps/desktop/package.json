@@ -1,6 +1,6 @@
 {
   "name": "sqldiff-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "SqlDiff 桌面版（Electron + Vite + React + TS）—— MySQL 结构对比，离线可用",
   "main": "dist-main/src-main/main.js",
@@ -13,6 +13,9 @@
     "start": "electron .",
     "icon": "node scripts/generate-icon.mjs",
     "pack": "npm run build && electron-builder --win --mac",
+    "pack:mac": "npm run build && electron-builder --mac dmg",
+    "pack:mac:arm64": "npm run build && electron-builder --mac dmg --arm64",
+    "pack:mac:x64": "npm run build && electron-builder --mac dmg --x64",
     "e2e": "npx playwright test --config e2e/playwright.config.ts",
     "e2e:export:ui": "npx playwright test --config e2e/playwright.config.ts --grep \"导出 UI E2E\"",
     "e2e:preflight:mysql": "npx playwright test --config e2e/playwright.config.ts --grep \"Preflight E2E\"",

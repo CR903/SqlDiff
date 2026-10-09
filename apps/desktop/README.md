@@ -33,7 +33,10 @@ npm run lint       # eslint .
 npm test           # vitest run（src-core 冒烟）
 npm run build      # typecheck + vite build（dist-renderer）+ tsc 主进程（dist-main）
 npm start          # electron .（需先 build）
-npm run pack       # build + electron-builder --win --mac（nsis x64 / dmg arm64+x64，产物 release/）
+npm run pack            # build + electron-builder --win --mac（nsis x64 / dmg arm64+x64，产物 release/）
+npm run pack:mac        # 仅 mac DMG：build + electron-builder --mac dmg（arm64+x64 双架构，产物 release/*.dmg）
+npm run pack:mac:arm64  # 仅 mac DMG 单架构 arm64（Apple Silicon）
+npm run pack:mac:x64    # 仅 mac DMG 单架构 x64（Intel）
 ```
 
 ## 目录结构
